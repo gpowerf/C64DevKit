@@ -1,0 +1,76 @@
+;; c64devk.acme — Master macro include for C64DevKit
+;; Pulls in all hardware abstraction macros.
+
+!source "macros/vic.acme"
+!source "macros/cia.acme"
+!source "macros/sid.acme"
+!source "macros/memory.acme"
+
+;; ============================================================
+;; Joystick direction constants
+;; ============================================================
+JOY_UP    = %00000001
+JOY_DOWN  = %00000010
+JOY_LEFT  = %00000100
+JOY_RIGHT = %00001000
+JOY_FIRE  = %00010000
+
+;; ============================================================
+;; Frame sync
+;; ============================================================
+!macro c64_wait_frame {
+.loop:
+    lda frame_ready
+    beq .loop
+    lda #0
+    sta frame_ready
+}
+
+;; ============================================================
+;; Sprite management
+;; ============================================================
+!macro c64_sprite_enable_all {
+    lda #$ff
+    sta $d015
+}
+
+!macro c64_sprite_disable_all {
+    lda #$00
+    sta $d015
+}
+
+!macro c64_sprite_set .index, .x, .y {
+    .is_x = .index * 2
+    lda #<.x
+    sta $d000 + .is_x
+    lda #<.y
+    sta $d001 + .is_x
+}
+
+!macro c64_sprite_set_color .index, .color {
+    sta $d027 + .index
+}
+
+!macro c64_sprite_set_pointer .index, .addr {
+    .ptr = .addr / 64
+    lda #.ptr
+    sta screen + $03f8 + .index
+}
+
+;; ============================================================
+;; Joystick reading
+;; ============================================================
+!macro c64_joy_check .mask, .skip_label {
+    lda joystick_state
+    and #.mask
+    beq .skip_label
+}
+
+;; ============================================================
+;; Sound duration tracking (per-voice frame timers)
+;; ============================================================
+!macro c64_sound_tick_all {
+    +c64_sid_tick 1
+    +c64_sid_tick 2
+    +c64_sid_tick 3
+}

@@ -1,0 +1,5 @@
+;; game_logic.acme — Custom game logic
+;; Called every frame after joystick is read but before sprites are updated.
+;; Add your game-specific logic here.
+
+    rts

@@ -1,0 +1,17 @@
+# Sprite definitions
+sprites:
+  - name: player
+    index: 0
+    x: 160
+    y: 120
+    color: 7               # yellow
+    multicolor: false
+    enabled: true
+
+  - name: enemy
+    index: 1
+    x: 100
+    y: 80
+    color: 2               # red
+    multicolor: false
+    enabled: true

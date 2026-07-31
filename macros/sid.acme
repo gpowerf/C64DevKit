@@ -1,0 +1,131 @@
+;; sid.acme — SID macros (sound chip, note table, envelope, gate)
+
+SID_BASE = $d400
+
+SID_FREQ_LO_1  = SID_BASE + $00
+SID_FREQ_HI_1  = SID_BASE + $01
+SID_PW_LO_1    = SID_BASE + $02
+SID_PW_HI_1    = SID_BASE + $03
+SID_CTRL_1     = SID_BASE + $04
+SID_ATK_DEC_1  = SID_BASE + $05
+SID_SUST_REL_1 = SID_BASE + $06
+
+SID_FREQ_LO_2  = SID_BASE + $07
+SID_FREQ_HI_2  = SID_BASE + $08
+SID_PW_LO_2    = SID_BASE + $09
+SID_PW_HI_2    = SID_BASE + $0a
+SID_CTRL_2     = SID_BASE + $0b
+SID_ATK_DEC_2  = SID_BASE + $0c
+SID_SUST_REL_2 = SID_BASE + $0d
+
+SID_FREQ_LO_3  = SID_BASE + $0e
+SID_FREQ_HI_3  = SID_BASE + $0f
+SID_PW_LO_3    = SID_BASE + $10
+SID_PW_HI_3    = SID_BASE + $11
+SID_CTRL_3     = SID_BASE + $12
+SID_ATK_DEC_3  = SID_BASE + $13
+SID_SUST_REL_3 = SID_BASE + $14
+
+SID_CUTOFF_LO  = SID_BASE + $15
+SID_CUTOFF_HI  = SID_BASE + $16
+SID_RES_FILT   = SID_BASE + $17
+SID_VOL_MODE   = SID_BASE + $18
+
+SID_WAVE_TRIANGLE = %00010000
+SID_WAVE_SAW      = %00100000
+SID_WAVE_PULSE    = %01000000
+SID_WAVE_NOISE    = %10000000
+SID_GATE_ON       = %00000001
+
+ADSR_ORGAN     = $49
+ADSR_PIANO     = $09
+ADSR_PLUCK     = $01
+ADSR_PAD       = $6A
+ADSR_BASS      = $19
+
+;; ============================================================
+;; Note frequency data — call +c64_note_table_data to emit at current PC
+;; ============================================================
+!macro c64_note_table_data {
+c64_note_table_lo:
+    !byte $5A, $9C, $E2, $2D, $7B, $CF, $27, $85
+    !byte $E8, $51, $C1, $37, $B4, $38, $C4, $59
+    !byte $F7, $9D, $4E, $0A, $D0, $A2, $81, $6D
+    !byte $67, $70, $89, $B2, $ED, $3B, $9C, $13
+    !byte $A0, $45, $02, $DA, $CE, $E0, $11, $64
+    !byte $DA, $76, $39, $26, $40, $89, $04, $B4
+    !byte $9C, $C0, $23, $C8, $B4, $EB, $72, $4C
+    !byte $80, $12, $08, $68, $39, $80, $45, $90
+    !byte $68, $D6, $E3, $99, $00, $24, $10, $D0
+
+c64_note_table_hi:
+    !byte $04, $04, $04, $05, $05, $05, $06, $06
+    !byte $06, $07, $07, $08, $08, $09, $09, $0A
+    !byte $0A, $0B, $0C, $0D, $0D, $0E, $0F, $10
+    !byte $11, $12, $13, $14, $15, $17, $18, $1A
+    !byte $1B, $1D, $1F, $20, $22, $24, $27, $29
+    !byte $2B, $2E, $31, $34, $37, $3A, $3E, $41
+    !byte $45, $49, $4E, $52, $57, $5C, $62, $68
+    !byte $6E, $75, $7C, $83, $8B, $93, $9C, $A5
+    !byte $AF, $B9, $C4, $D0, $DD, $EA, $F8, $06
+}
+
+;; ============================================================
+;; Play note by semitone index (0-71, C-2=0, C-4=24, etc.)
+;; Requires +c64_note_table_data to have been called first.
+;; ============================================================
+!macro c64_play_note .voice, .semitone {
+    .base = SID_BASE + (.voice - 1) * 7
+    ldx #.semitone
+    lda c64_note_table_lo, x
+    sta .base
+    lda c64_note_table_hi, x
+    sta .base + 1
+}
+
+;; ============================================================
+;; Set ADSR envelope
+;; ============================================================
+!macro c64_adsr .voice, .atk, .dec, .sus, .rel {
+    .base = SID_BASE + (.voice - 1) * 7
+    lda #(((.atk) << 4) | (.dec))
+    sta .base + 5
+    lda #(((.sus) << 4) | (.rel))
+    sta .base + 6
+}
+
+;; ============================================================
+;; Gate on/off
+;; ============================================================
+!macro c64_gate_on .voice, .waveform {
+    .base = SID_BASE + (.voice - 1) * 7
+    lda #((.waveform) | SID_GATE_ON)
+    sta .base + 4
+}
+
+!macro c64_gate_off .voice {
+    .base = SID_BASE + (.voice - 1) * 7
+    lda .base + 4
+    and #$FE
+    sta .base + 4
+}
+
+;; ============================================================
+;; Per-voice sound duration tick (decrements counter, gates off)
+;; ============================================================
+!macro c64_sid_tick .voice {
+    lda sound_dur_1 + (.voice - 1)
+    beq .done
+    dec sound_dur_1 + (.voice - 1)
+    bne .done
+    +c64_gate_off .voice
+.done:
+}
+
+;; ============================================================
+;; Set master volume (0-15)
+;; ============================================================
+!macro c64_sid_volume .vol {
+    lda #((.vol) & $0F)
+    sta SID_VOL_MODE
+}

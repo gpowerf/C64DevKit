@@ -1,0 +1,33 @@
+;; memory.acme — Memory layout macros
+
+C64_RAM         = $0000
+C64_ROM_BASIC   = $a000
+C64_ROM_KERNAL  = $e000
+C64_IO          = $d000
+C64_CHARSET_ROM = $d000
+
+;; ============================================================
+;; Bank switching
+;; ============================================================
+!macro c64_bank_rom_enable {
+    lda #$37
+    sta $01
+}
+
+!macro c64_bank_all_ram {
+    lda #$35
+    sta $01
+}
+
+!macro c64_bank_io_ram {
+    lda #$34
+    sta $01
+}
+
+;; ============================================================
+;; Common memory locations
+;; ============================================================
+!macro c64_set_screen_ptr .addr {
+    ; .addr is absolute address
+    ; This should be set during init via $d018 register
+}

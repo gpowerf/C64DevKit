@@ -1,0 +1,17 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Test artifacts
+.pytest_cache/
+
+# Build outputs (generated per project)
+output/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
