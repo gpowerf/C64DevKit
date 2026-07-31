@@ -257,17 +257,32 @@ restart:
     sta score+1
     sta state
     sta state_tmr
-    sta hit_timer
     sta snd_timer
     sta speed_ctr
     sta go_drawn
+    lda #10
+    sta hit_timer           ; brief invincibility on restart
 
+    ;; Reset player to center
+    lda #160
+    sta $d000
+    lda #120
+    sta $d001
+    lda $d010
+    and #$FE                ; clear MSB for sprite 0
+    sta $d010
+
+    ;; Reset enemy
     lda #100
     sta enemy_x
     sta $d002
     lda #80
     sta enemy_y
     sta $d003
+
+    ;; Ensure both sprites visible
+    lda #$03
+    sta $d015
 
     ldx #0
     lda #$20
