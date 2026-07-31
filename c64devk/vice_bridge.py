@@ -33,16 +33,17 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
 
     args = [vice]
     if autostart:
-        args += ["-autostartprgmode", "0", "-autostart", str(prg_path)]
+        args += ["-autostartprgmode", "1", "-autostart", str(prg_path)]
     else:
         args.append(str(prg_path))
 
     if headless:
         args += ["-remotemonitor", "+sound"]
-    else:
-        pass
 
-    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(f"  Launching: {vice}")
+    print(f"  PRG: {prg_path}")
+    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           start_new_session=True)
 
 
 def _setup_roms(rom_dir: Path) -> None:
@@ -74,7 +75,7 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         vice,
         "-remotemonitor",
         "+sound",
-        "-autostartprgmode", "0",
+        "-autostartprgmode", "1",
         "-autostart", str(prg_path),
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
