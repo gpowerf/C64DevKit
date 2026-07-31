@@ -1,6 +1,5 @@
-;; game_logic.acme — Sprite Dodge: enemy AI
+;; game_logic.acme — Sprite Dodge: keyboard input + enemy AI
 ;; Runs every frame after behaviors_update.
-;; Enemy chases the player at 1 pixel/frame.
 
     jmp .start
 
@@ -9,7 +8,10 @@ enemy_y:    !byte 80
 enemy_init: !byte 0
 
 .start:
-    ;; --- First-frame init ---
+    ;; --- Keyboard input (WASD), runs BEFORE enemy AI ---
+    jsr read_keyboard
+
+    ;; --- First-frame init for enemy ---
     lda enemy_init
     bne .do_ai
     inc enemy_init
@@ -80,4 +82,44 @@ enemy_init: !byte 0
     sta $d002
     lda enemy_y
     sta $d003
+    rts
+
+
+;; ============================================================
+;; Keyboard reader — WASD maps to UP/DOWN/LEFT/RIGHT, SPACE=fire
+;; Directly writes to VIC-II sprite 0 position registers
+;; ============================================================
+read_keyboard:
+    ;; Check W (up) — column 1 ($FE), row 1 ($01)
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$02
+    bne .chk_s
+    dec $d001              ; move player up
+.chk_s:
+    ;; Check S (down) — column 1, row 5 ($10)
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$20
+    bne .chk_a
+    inc $d001              ; move player down
+.chk_a:
+    ;; Check A (left) — column 2 ($FB), row 1 ($01)
+    lda #$fb
+    sta $dc00
+    lda $dc01
+    and #$02
+    bne .chk_d
+    dec $d000              ; move player left
+.chk_d:
+    ;; Check D (right) — column 2, row 3 ($04)
+    lda #$fb
+    sta $dc00
+    lda $dc01
+    and #$08
+    bne .done
+    inc $d000              ; move player right
+.done:
     rts
