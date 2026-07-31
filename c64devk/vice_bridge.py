@@ -33,7 +33,11 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
 
     args = [vice]
     if autostart:
-        args += ["-autostartprgmode", "0", "-virtualdev8", "-drive8type", "1542", "-autostart", str(prg_path)]
+        args += [
+            "-autostartprgmode", "1",
+            "-autostart", str(prg_path),
+            "-keybuf", "run\n",
+        ]
     else:
         args.append(str(prg_path))
 
@@ -75,10 +79,9 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         vice,
         "-remotemonitor",
         "+sound",
-        "-autostartprgmode", "0",
-        "-virtualdev8",
-        "-drive8type", "1542",
+        "-autostartprgmode", "1",
         "-autostart", str(prg_path),
+        "-keybuf", "run\n",
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
