@@ -1,2 +1,10 @@
-# Sprite Dodge — all logic in game_logic.acme
+# Sprite Dodge — game logic
+#
+# This game uses hand-written 6502 assembly for all logic.
+# The behavior DSL is bypassed; everything lives in:
+#   routines/game_logic.acme
+#
+# See that file for: keyboard input, enemy AI, collision detection,
+# state machine, screen text, scoring, sound, and restart logic.
+
 behaviors: []

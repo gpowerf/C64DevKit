@@ -1,6 +1,11 @@
 # Screen configuration
-mode: hires                # hires | multicolor | text
-charset: 0x3800
+mode: hires                # hires character mode
+charset: 0x3800            # ROM charset copied here at startup
 screen_ram: 0x0400
-background_color: 0        # black
-border_color: 0            # black
+background_color: 0        # black (overridden by color RAM zones)
+border_color: 11           # dark gray
+
+# Color RAM split into 3 vertical zones by game init:
+#   green (cols  0-12): score zone
+#   black (cols 13-27): neutral zone
+#   blue  (cols 28-39): safe zone
