@@ -705,4 +705,10 @@ def run_build(spec: "ProjectSpec") -> Path:
         import shutil
         shutil.copytree(routines_src, routines_dst, dirs_exist_ok=True)
 
+    assets_src = spec.project_dir / "assets"
+    assets_dst = src_dir / "assets"
+    if assets_src.exists():
+        import shutil
+        shutil.copytree(assets_src, assets_dst, dirs_exist_ok=True)
+
     return main_asm

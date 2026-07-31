@@ -7,6 +7,7 @@ sprites:
     color: 7               # yellow
     multicolor: false
     enabled: true
+    data_file: "assets/sprites/player.spr"
 
   - name: enemy
     index: 1
@@ -15,3 +16,4 @@ sprites:
     color: 2               # red
     multicolor: false
     enabled: true
+    data_file: "assets/sprites/skull.spr"
