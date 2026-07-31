@@ -97,10 +97,10 @@ def cmd_new(name: str, parent: str) -> None:
 
     config_file = project_dir / "c64devk.yaml"
     content = config_file.read_text()
-    content = content.replace("{{name}}", name)
+    content = content.replace("{{name}}", project_dir.name)
     config_file.write_text(content)
 
-    print(f"Created project '{name}' at {project_dir}")
+    print(f"Created project '{project_dir.name}' at {project_dir}")
     print(f"  c64devk.yaml        — project config")
     print(f"  spec/               — YAML spec files")
     print(f"  routines/           — custom assembly code")

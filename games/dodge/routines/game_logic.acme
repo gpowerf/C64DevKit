@@ -1,0 +1,81 @@
+;; game_logic.acme — Sprite Dodge: enemy AI
+;; Runs every frame after behaviors_update.
+;; Enemy chases the player at 1 pixel/frame.
+
+enemy_x:    !byte 100
+enemy_y:    !byte 80
+enemy_init: !byte 0
+
+    ;; --- First-frame init ---
+    lda enemy_init
+    bne .do_ai
+    inc enemy_init
+    lda #100
+    sta enemy_x
+    sta $d002
+    lda #80
+    sta enemy_y
+    sta $d003
+    rts
+
+.do_ai:
+    ;; Read player position from VIC-II registers (sprite 0)
+    lda $d000               ; player_x lo
+    sta $02
+    lda $d001               ; player_y
+    sta $03
+
+    ;; --- Chase X ---
+    lda $02
+    cmp enemy_x
+    beq .chase_y
+    bcc .move_left
+    inc enemy_x
+    jmp .chase_y
+.move_left:
+    dec enemy_x
+
+.chase_y:
+    ;; --- Chase Y ---
+    lda $03
+    cmp enemy_y
+    beq .clamp
+    bcc .move_up
+    inc enemy_y
+    jmp .clamp
+.move_up:
+    dec enemy_y
+
+.clamp:
+    ;; Clamp X to visible range (24-255, doesn't use $D010 MSB)
+    lda enemy_x
+    cmp #24
+    bcs .xmax
+    lda #24
+    sta enemy_x
+    bne .clamp_y
+.xmax:
+    cmp #255
+    bcc .clamp_y
+    lda #255
+    sta enemy_x
+
+.clamp_y:
+    lda enemy_y
+    cmp #50
+    bcs .ymax
+    lda #50
+    sta enemy_y
+    bne .write
+.ymax:
+    cmp #229
+    bcc .write
+    lda #229
+    sta enemy_y
+
+.write:
+    lda enemy_x
+    sta $d002               ; sprite 1 X
+    lda enemy_y
+    sta $d003               ; sprite 1 Y
+    rts

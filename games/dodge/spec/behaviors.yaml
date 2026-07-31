@@ -1,0 +1,24 @@
+# Sprite Dodge — behaviors
+
+behaviors:
+  - name: move_player
+    type: on_frame
+    actions:
+      - update_sprite: player
+
+  - name: hit
+    type: on_collision
+    sprites: [player, enemy]
+    actions:
+      - set_sprite_pos:
+          sprite: player
+          x: 160
+          y: 120
+      - play_sound:
+          voice: 1
+          note: "C-4"
+          waveform: triangle
+          duration: 8
+          adsr: pluck
+          volume: 12
+      - inc_score: 10

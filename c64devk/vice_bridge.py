@@ -1,6 +1,7 @@
 """VICE bridge — launch emulator and communicate via remote monitor."""
 
 import re
+import os
 import subprocess
 import socket
 import time
@@ -26,9 +27,13 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
         print("Error: VICE (x64sc) not found", file=sys.stderr)
         return None
 
+    rom_dir = (Path.home() / ".c64devk" / "roms")
+    if not (rom_dir / "kernal").exists():
+        _setup_roms(rom_dir)
+
     args = [vice]
     if autostart:
-        args += ["-autostart", str(prg_path)]
+        args += ["-autostartprgmode", "0", "-autostart", str(prg_path)]
     else:
         args.append(str(prg_path))
 
@@ -37,22 +42,42 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
     else:
         pass
 
-    return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _setup_roms(rom_dir: Path) -> None:
+    rom_dir.mkdir(parents=True, exist_ok=True)
+    roms_src = Path("/usr/share/vice/C64")
+    mapping = {
+        "kernal-901227-03.bin": "kernal",
+        "basic-901226-01.bin": "basic",
+        "chargen-901225-01.bin": "chargen",
+    }
+    for src_name, dst_name in mapping.items():
+        src = roms_src / src_name
+        dst = rom_dir / dst_name
+        if src.exists() and not dst.exists():
+            os.symlink(str(src), str(dst))
 
 
 def launch_headless(prg_path: Path) -> subprocess.Popen | None:
-    """Launch VICE headless with remote monitor for testing."""
     vice = find_vice()
     if not vice:
         print("Error: VICE (x64sc) not found", file=sys.stderr)
         return None
+
+    rom_dir = (Path.home() / ".c64devk" / "roms")
+    if not (rom_dir / "kernal").exists():
+        _setup_roms(rom_dir)
+
     args = [
         vice,
         "-remotemonitor",
         "+sound",
+        "-autostartprgmode", "0",
         "-autostart", str(prg_path),
     ]
-    return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def launch_debug(prg_path: Path) -> subprocess.Popen | None:
