@@ -29,17 +29,47 @@ Run `c64devk doctor` to check that all dependencies are found.
 bin/c64devk doctor
 
 # 2. Create a project
-bin/c64devk new spaceshooter
+bin/c64devk new mygame
 
-# 3. Edit the spec
-#    - spec/sprites.yaml: add your sprites
-#    - spec/game.yaml: configure screen colors
-#    - spec/behaviors.yaml: define game behaviors
-#    - routines/game_logic.acme: custom assembly code
-
+# 3. Edit the spec (sprites, behaviors, screen config)
 # 4. Build and run
-bin/c64devk run --project spaceshooter
+bin/c64devk run --project mygame
 ```
+
+## Spec-driven workflow
+
+The main loop: edit YAML → build → run. No assembly required.
+
+```bash
+vim spec/sprites.yaml      # add a sprite, change color or position
+vim spec/behaviors.yaml    # add movement, collision, sound
+c64devk build              # regenerate + compile → .prg in ~1s
+c64devk run                # test in VICE
+```
+
+**Example: adding collision detection in 30 seconds**
+
+Edit `spec/behaviors.yaml`:
+```yaml
+behaviors:
+  - name: move_player
+    type: on_frame
+    actions:
+      - update_sprite: player
+
+  - name: on_hit
+    type: on_collision
+    sprites: [player, enemy]
+    actions:
+      - inc_score: 10
+      - play_sound: {voice: 1, note: "C-4", waveform: triangle, duration: 10}
+```
+
+`c64devk build && c64devk run` — now colliding sprites play a sound and add score.
+
+**When you need custom logic**, write assembly in `routines/game_logic.acme`.
+This file is called every frame and never overwritten by the build.
+See `skills/SKILL.md` for the full spec language reference and 8 C64 code patterns.
 
 ## Project structure
 

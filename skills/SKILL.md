@@ -922,6 +922,258 @@ test report
 
 ---
 
+## Spec Writing Tutorial
+
+### Quick start: your first spec-driven program
+
+```bash
+c64devk new hello
+cd hello
+c64devk build      # builds with defaults — one yellow sprite at center
+c64devk run        # launches in VICE (WASD to move)
+```
+
+This produces a working C64 program using the default specs.
+Now let's change what it does.
+
+---
+
+### Changing sprites
+
+Edit `spec/sprites.yaml`. Add a second sprite:
+
+```yaml
+sprites:
+  - name: hero
+    index: 0
+    x: 100
+    y: 100
+    color: 7               # yellow
+
+  - name: monster
+    index: 1
+    x: 200
+    y: 150
+    color: 2               # red
+```
+
+Run `c64devk build && c64devk run`. Now there are two sprites on screen.
+
+**What the framework generates from this:**
+```
+init_sprites:
+    ; Sprite 0: hero
+    lda #<100
+    sta $D000               ; sprite 0 X low
+    lda #<100
+    sta $D001               ; sprite 0 Y
+    lda #$07
+    sta $D027               ; sprite 0 color = yellow
+
+    ; Sprite 1: monster
+    lda #<200
+    sta $D002               ; sprite 1 X low
+    lda #<150
+    sta $D003               ; sprite 1 Y
+    lda #$02
+    sta $D028               ; sprite 1 color = red
+
+    +c64_sprite_enable_all
+    rts
+```
+
+You can change any value and rebuild — positions update immediately.
+
+---
+
+### Adding behavior: move a sprite with keyboard
+
+Edit `spec/behaviors.yaml`:
+
+```yaml
+behaviors:
+  - name: move_hero
+    type: on_frame
+    actions:
+      - update_sprite: hero
+```
+
+Rebuild. The hero sprite now responds to WASD (the framework reads the keyboard,
+sets `joystick_state`, and the `update_sprite` action maps joystick directions
+to VIC-II sprite position changes).
+
+**What the framework generates:**
+```
+behaviors_update:
+    ; Behavior: move_hero
+    +c64_joy_check JOY_UP, .b_s0u_1
+    dec $D001               ; move hero up
+.b_s0u_1:
+    +c64_joy_check JOY_DOWN, .b_s0d_2
+    inc $D001               ; move hero down
+    ...
+```
+
+---
+
+### Adding collision
+
+```yaml
+behaviors:
+  - name: move_hero
+    type: on_frame
+    actions:
+      - update_sprite: hero
+
+  - name: hero_hit
+    type: on_collision
+    sprites: [hero, monster]
+    actions:
+      - set_sprite_pos:
+          sprite: hero
+          x: 100
+          y: 100            # reset to start
+      - inc_score: 10       # +10 points
+      - play_sound:
+          voice: 1
+          note: "C-4"
+          waveform: triangle
+          duration: 10
+          adsr: pluck
+          volume: 12
+```
+
+When hero and monster VIC-II sprites overlap, the hardware collision register
+($D01E) triggers. The framework generates:
+```
+    ; Collision check: hero (0) vs monster (1)
+    lda $d01e
+    and #$03               ; bits 0+1
+    beq .skip
+    jsr beh_handler_hero_hit
+.skip:
+
+beh_handler_hero_hit:
+    ; set_sprite_pos: hero -> (100, 100)
+    lda #<100
+    sta $D000
+    ...
+
+    ; inc_score: +10
+    clc
+    lda score
+    adc #<10
+    sta score
+    ...
+
+    ; play_sound: C-4 triangle, pluck, 10 frames
+    lda #<4455
+    sta $D400
+    ...
+
+    rts
+```
+
+---
+
+### The spec-to-code flow
+
+When you run `c64devk build`, here's exactly what happens:
+
+```
+c64devk.yaml      ─┐
+sprites.yaml      ─┤   spec_parser.py reads all YAML files
+behaviors.yaml    ─┤        │
+                        ▼
+                 ProjectSpec dataclass
+                 (MemoryLayout, ScreenConfig,
+                  SpriteDef[], BehaviorDef[])
+                        │
+                        ▼  codegen.py
+                 generate_assembly()
+                        │
+                  emits each section:
+                   _emit_basic_header()
+                   _emit_init()
+                   _emit_irq_handler()
+                   _emit_behavior_main_loop()
+                   _emit_behavior_frame()
+                   _emit_sprite_init_behavior()
+                   _emit_behavior_update_sprites()
+                   _emit_collision_checks()
+                   _emit_collision_handlers()
+                   _emit_sprite_data()
+                        │
+                        ▼
+                 output/src/main.acme
+                        │  macros/, routines/, assets/ copied
+                        ▼
+                 acme -f cbm → output/build/<name>.prg
+```
+
+Every YAML key you change maps to a specific line in the generated assembly.
+You can read `output/src/main.acme` to see exactly what got generated.
+
+---
+
+### When to use behaviors vs routines
+
+| Use `spec/behaviors.yaml` for... | Use `routines/game_logic.acme` for... |
+|----------------------------------|---------------------------------------|
+| Sprite movement from joystick | Custom AI (chase, patrol, flee) |
+| Collision response (reset, score, sound) | Keyboard input (if WASD not joystick) |
+| Simple sprite position changes | Screen text display |
+| Sound triggers on events | State machines (menus, game over) |
+| Up to ~50 lines of YAML | Anything over 50 lines |
+| Behaviors you want to tweak rapidly | Logic the DSL can't express yet |
+
+**You can mix both.** The framework calls `behaviors_update` then `game_logic`
+each frame. Behaviors handle the standard stuff; your custom assembly handles
+the unique stuff. Both get called every frame in that order.
+
+---
+
+### Iterating: change a spec, see the result
+
+The typical workflow:
+
+```bash
+vim spec/sprites.yaml      # change color, position, add a sprite
+c64devk build              # regenerates assembly + compiles
+c64devk run                # launches in VICE to test
+```
+
+Total cycle: ~2 seconds. No assembly knowledge needed for spec-only changes.
+
+When you need custom logic, add it to `routines/game_logic.acme`:
+
+```asm
+    ;; Called every frame AFTER behaviors_update
+    ;; Access joystick_state to see what WASD keys are pressed
+    ;; Write to $d000-$d007 for sprite positions
+    ;; Read $d01e for collision status
+    rts
+```
+
+The framework preserves this file across builds — it's `!source`d into the
+generated code but never overwritten.
+
+---
+
+### Spec validation
+
+The framework catches errors before ACME ever sees them:
+
+```
+Error: sprites.yaml: 'hero': index 8 must be 0-7
+Error: behaviors.yaml: 'move' references sprite 'ghost' which doesn't exist
+Error: c64devk.yaml: memory.sprite_data ($2008) must be 64-byte aligned
+```
+
+Fix the YAML and rebuild. No cryptic assembler errors.
+
+---
+
 ## Tips for OpenCode
 
 ### When a user asks to create a C64 game/program
