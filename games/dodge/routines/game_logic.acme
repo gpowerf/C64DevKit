@@ -208,7 +208,7 @@ do_over:
 
 ov_wait:
     jsr sound_tick
-    lda #$ef
+    lda #$7f
     sta $dc00
     lda $dc01
     and #$10
