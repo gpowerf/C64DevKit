@@ -346,7 +346,7 @@ k3:
     and #$04
     bne kdone
     lda $d000
-    cmp #250                ; max X (8-bit, before wrap)
+    cmp #255                ; max X before MSB needed
     bcs kdone
     inc $d000
 kdone:
