@@ -37,7 +37,7 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
         args += [
             "-autostartprgmode", "1",
             "-autostart", str(prg_path),
-            "-keybuf", f"sys{init_addr}\n",
+            "-keybuf", f"sys{init_addr}\r",
         ]
     else:
         args.append(str(prg_path))
@@ -105,7 +105,7 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         "+sound",
         "-autostartprgmode", "1",
         "-autostart", str(prg_path),
-        "-keybuf", f"sys{init_addr}\n",
+        "-keybuf", f"sys{init_addr}\r",
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
