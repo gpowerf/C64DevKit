@@ -19,6 +19,7 @@ init_done:  !byte 0
 go_drawn:   !byte 0
 digits:     !byte 0, 0, 0, 0, 0
 speed_ctr:  !byte 0
+last_safe:  !byte 0          ; previous frame safe-zone flag
 
 GAME_PLAYING = 0
 GAME_DYING   = 1
@@ -320,8 +321,9 @@ restart:
     sta state_tmr
     sta snd_timer
     sta speed_ctr
-    sta go_drawn
-    lda #10
+     sta go_drawn
+     sta last_safe
+     lda #10
     sta hit_timer           ; brief invincibility on restart
 
     ;; Reset player to center
@@ -546,21 +548,48 @@ e_done:
 ;; Score — +1 every 10 frames
 ;; ============================================================
 score_do:
+    ;; Zone detection
+    lda $d010
+    and #$01
+    beq .not_safe            ; MSB = 0, not in safe zone
+
+    ;; In safe zone (blue/right, X >= 256)
+    lda last_safe
+    bne .safe_tick           ; already in safe zone, no penalty
+    ;; Just entered safe zone: lose 5 points (floor 0)
+    lda #1
+    sta last_safe
+    sec
+    lda score
+    sbc #5
+    sta score
+    lda score+1
+    sbc #0
+    bcs .safe_ok
+    ;; Underflow: clamp to 0
+    lda #0
+    sta score
+    sta score+1
+.safe_ok:
+    rts
+
+.not_safe:
+    lda #0
+    sta last_safe            ; not in safe zone
+
+.safe_tick:
     inc score_tmr
     lda score_tmr
-    cmp #20                 ; slower ticks (every 20 frames)
+    cmp #20
     bcc s_done
     lda #0
     sta score_tmr
-    ;; +2 green (X<128, MSB=0), +0 blue (MSB=1), +1 black (rest)
-    lda $d010
-    and #$01
-    bne s_done              ; MSB set = X >= 256 = safe zone, no score
+
+    ;; Only green zone (X < 128, MSB=0) gives points (+2)
     lda $d000
     cmp #128
-    bcc s_bonus             ; green zone: +2
-    jmp s_normal            ; black zone: +1
-s_bonus:
+    bcs s_done               ; black zone: 0 points
+    ;; Green zone: +2
     clc
     lda score
     adc #2
@@ -569,14 +598,7 @@ s_bonus:
     adc #0
     sta score+1
     rts
-s_normal:
-    clc
-    lda score
-    adc #1
-    sta score
-    lda score+1
-    adc #0
-    sta score+1
+
 s_done:
     rts
 
