@@ -48,7 +48,10 @@ gdone:
 ;; ============================================================
 init_once:
     lda init_done
-    bne i_done
+    beq do_init
+    rts                      ; already done — return immediately
+
+do_init:
     inc init_done
 
     ;; Copy ROM charset ($D000) to RAM ($3800) for VIC bank 0
@@ -93,6 +96,50 @@ clr_scr:
     ;; Visible border (dark gray)
     lda #11
     sta $d020
+
+    ;; Set background color to black
+    lda #0
+    sta $d021
+
+    ;; Set 3 zones in color RAM: green (left), black (mid), blue (right)
+    lda #<$d800
+    sta $02
+    lda #>$d800
+    sta $03
+    ldx #25                 ; 25 rows
+z_row:
+    ldy #0
+    lda #5                  ; green — score zone
+z_grn:
+    sta ($02), y
+    iny
+    cpy #13
+    bne z_grn
+
+    lda #0                  ; black — neutral zone
+z_blk:
+    sta ($02), y
+    iny
+    cpy #28
+    bne z_blk
+
+    lda #6                  ; blue — safe zone
+z_blu:
+    sta ($02), y
+    iny
+    cpy #40
+    bne z_blu
+
+    ;; next row
+    lda $02
+    clc
+    adc #40
+    sta $02
+    bcc z_nh
+    inc $03
+z_nh:
+    dex
+    bne z_row
 
     ;; Top line color = yellow
     ldx #0
@@ -222,6 +269,16 @@ ov_done:
     rts
 
 draw_gameover:
+    ;; Set color rows 12-13 to white for readable text
+    ldx #0
+    lda #1                  ; white
+go_col:
+    sta $d9e0, x            ; row 12
+    sta $da08, x            ; row 13
+    inx
+    cpx #40
+    bne go_col
+
     ldx #0
     lda #$20
 go_clr:
@@ -295,7 +352,31 @@ rest_clr:
     sta SCRN+$208, x
     inx
     cpx #40
-    bne rest_clr
+     bne rest_clr
+
+    ;; Restore zone colors on game-over rows (were set to white)
+    ldy #0
+r_green:
+    lda #5
+    sta $d9e0, y
+    sta $da08, y
+    iny
+    cpy #13
+    bne r_green
+r_black:
+    lda #0
+    sta $d9e0, y
+    sta $da08, y
+    iny
+    cpy #28
+    bne r_black
+r_blue:
+    lda #6
+    sta $d9e0, y
+    sta $da08, y
+    iny
+    cpy #40
+    bne r_blue
 
     jsr draw_headers
     jsr update_display
@@ -471,6 +552,20 @@ score_do:
     bcc s_done
     lda #0
     sta score_tmr
+    ;; +2 in left zone (X < 128), +1 normally
+    lda $d000
+    cmp #128
+    bcs s_normal
+    ;; bonus zone
+    clc
+    lda score
+    adc #2
+    sta score
+    lda score+1
+    adc #0
+    sta score+1
+    rts
+s_normal:
     clc
     lda score
     adc #1
