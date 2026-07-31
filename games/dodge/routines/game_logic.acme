@@ -161,9 +161,9 @@ die_count:
     sta $d002
     lda enemy_y
     sta $d003
-    lda #$01
+    lda #$03
     sta $d015
-    lda #60
+    lda #90
     sta hit_timer
     lda #GAME_PLAYING
     sta state
@@ -447,6 +447,20 @@ c_check:
 
     dec lives
 
+    ;; Move enemy away immediately (write to VIC-II registers)
+    lda $d012
+    and #$3f
+    clc
+    adc #80
+    sta enemy_x
+    sta $d002
+    eor #$55
+    and #$3f
+    clc
+    adc #60
+    sta enemy_y
+    sta $d003
+
     ;; Hit sound
     lda #<5000
     sta $D400
@@ -462,18 +476,6 @@ c_check:
     sta $D418
     lda #20
     sta snd_timer
-
-    ;; Randomize enemy position
-    lda $d012
-    and #$3f
-    clc
-    adc #80
-    sta enemy_x
-    eor #$55
-    and #$3f
-    clc
-    adc #60
-    sta enemy_y
 
     lda #GAME_DYING
     sta state
