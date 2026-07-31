@@ -4,26 +4,26 @@
     jmp gstart
 
 ;; --- Variables ---
-score:      !byte 0, 0       ; 16-bit score
+score:      !byte 0, 0
 lives:      !byte 3
 enemy_x:    !byte 100
 enemy_y:    !byte 80
 enemy_init: !byte 0
 hit_timer:  !byte 0
-snd_timer:  !byte 0          ; death sound duration
+snd_timer:  !byte 0
 state:      !byte 0          ; 0=PLAYING, 1=DYING, 2=GAME_OVER
-state_tmr:  !byte 0          ; state transition timer
-score_tmr:  !byte 0          ; score ticks every N frames
+state_tmr:  !byte 0
+score_tmr:  !byte 0
 flash_tmr:  !byte 0
 init_done:  !byte 0
 go_drawn:   !byte 0
-digits:     !byte 0, 0, 0, 0, 0   ; 5 score digits
-speed_ctr:  !byte 0          ; enemy speed counter
+digits:     !byte 0, 0, 0, 0, 0
+speed_ctr:  !byte 0
 
 GAME_PLAYING = 0
 GAME_DYING   = 1
 GAME_OVER    = 2
-SCRN = $CC00                  ; screen RAM in VIC bank 3
+SCRN = $0400
 
 gstart:
     jsr init_once
@@ -44,22 +44,44 @@ gdone:
     rts
 
 ;; ============================================================
+;; First-frame init — copy charset, clear screen
+;; ============================================================
 init_once:
     lda init_done
     bne i_done
     inc init_done
 
-    ;; VIC bank 3 ($C000-$FFFF): screen at $CC00, ROM charset at $D000
-    lda $dd00
-    and #$fc
-    ora #$00
-    sta $dd00                   ; bits 0-1 = 00 → bank 3
-    lda #$34                    ; screen=$CC00, charset=$D000
-    sta $d018
-
-    ;; Clear screen to spaces
+    ;; Copy ROM charset ($D000) to RAM ($3800) for VIC bank 0
+    sei                          ; no IRQs during copy
+    lda #$33                     ; CHAREN=0: character ROM visible
+    sta $01
     ldx #0
-    lda #$20                    ; space char
+copylp:
+    lda $d000, x
+    sta $3800, x
+    lda $d100, x
+    sta $3900, x
+    lda $d200, x
+    sta $3a00, x
+    lda $d300, x
+    sta $3b00, x
+    lda $d400, x
+    sta $3c00, x
+    lda $d500, x
+    sta $3d00, x
+    lda $d600, x
+    sta $3e00, x
+    lda $d700, x
+    sta $3f00, x
+    inx
+    bne copylp
+    lda #$37                     ; restore: all ROMs + I/O
+    sta $01
+    cli
+
+    ;; Clear screen
+    ldx #0
+    lda #$20
 clr_scr:
     sta SCRN, x
     sta SCRN+$100, x
@@ -68,7 +90,7 @@ clr_scr:
     inx
     bne clr_scr
 
-    ;; Set top line color to yellow
+    ;; Top line color = yellow
     ldx #0
     lda #7
 clr_col:
@@ -77,10 +99,10 @@ clr_col:
     cpx #40
     bne clr_col
 
-    ;; Draw initial "SCORE:     LIVES:"
+    ;; Draw score + lives header
     jsr draw_headers
 
-    ;; Init enemy position
+    ;; Init enemy position on VIC-II registers
     lda enemy_x
     sta $d002
     lda enemy_y
@@ -104,7 +126,7 @@ hdr_done:
 score_hdr: !scr "score:00000  lives:3", 0
 
 ;; ============================================================
-;; PLAYING state — normal gameplay
+;; PLAYING state
 ;; ============================================================
 do_play:
     jsr enemy_do
@@ -114,28 +136,27 @@ do_play:
     rts
 
 ;; ============================================================
-;; DYING state — flash, countdown, transition
+;; DYING state
 ;; ============================================================
 do_die:
     lda flash_tmr
-    beq .toggle
+    beq die_toggle
     dec flash_tmr
-    jmp .countdown
+    jmp die_count
 
-.toggle:
-    ;; Toggle player visibility (sprite enable bit $D015)
+die_toggle:
     lda $d015
-    eor #$01                   ; toggle sprite 0
+    eor #$01
     sta $d015
     lda #4
     sta flash_tmr
 
-.countdown:
+die_count:
     dec state_tmr
     bne dd_rts
     lda lives
-    beq .go_gameover
-    ;; Respawn
+    beq die_gameover
+    ;; Respawn — restore visibility, invincibility
     lda enemy_x
     sta $d002
     lda enemy_y
@@ -151,7 +172,7 @@ do_die:
 dd_rts:
     rts
 
-.go_gameover:
+die_gameover:
     lda #$01
     sta $d015
     lda #GAME_OVER
@@ -161,19 +182,32 @@ dd_rts:
     rts
 
 ;; ============================================================
-;; GAME OVER state — show text, wait for SPACE
+;; GAME OVER state
 ;; ============================================================
 do_over:
     lda go_drawn
-    bne .wait
+    bne ov_wait
     inc go_drawn
     jsr draw_gameover
+    lda #<5000
+    sta $D400
+    lda #>5000
+    sta $D401
+    lda #$21
+    sta $D404
+    lda #$01
+    sta $D405
+    lda #$00
+    sta $D406
+    lda #$0F
+    sta $D418
+    lda #30
+    sta snd_timer
     jsr sound_tick
     rts
 
-.wait:
+ov_wait:
     jsr sound_tick
-    ;; Check SPACE bar to restart
     lda #$ef
     sta $dc00
     lda $dc01
@@ -184,34 +218,31 @@ ov_done:
     rts
 
 draw_gameover:
-    ;; Clear a few lines around center
     ldx #0
     lda #$20
-.go_clr:
-    sta SCRN+$1E0, x           ; row 12
-    sta SCRN+$208, x           ; row 13
+go_clr:
+    sta SCRN+$1E0, x
+    sta SCRN+$208, x
     inx
     cpx #40
-    bne .go_clr
+    bne go_clr
 
-    ;; Write "GAME OVER" centered
     ldx #0
-.go_txt:
+go_txt:
     lda over_text, x
-    beq .go_done
+    beq go_done
     sta SCRN+$1E0+16, x
     inx
-    bne .go_txt
-.go_done:
-    ;; Write "PRESS SPACE" centered
+    bne go_txt
+go_done:
     ldx #0
-.space_txt:
+sp_txt:
     lda space_text, x
-    beq .sp_done
+    beq sp_done
     sta SCRN+$208+13, x
     inx
-    bne .space_txt
-.sp_done:
+    bne sp_txt
+sp_done:
     rts
 
 over_text:  !scr "game over", 0
@@ -238,23 +269,21 @@ restart:
     sta enemy_y
     sta $d003
 
-    ;; Clear game over area
     ldx #0
     lda #$20
-.rest_clr:
+rest_clr:
     sta SCRN+$1E0, x
     sta SCRN+$208, x
     inx
     cpx #40
-    bne .rest_clr
+    bne rest_clr
 
-    ;; Re-draw headers
     jsr draw_headers
     jsr update_display
     rts
 
 ;; ============================================================
-;; Keyboard input — WASD → joystick_state
+;; Keyboard — WASD
 ;; ============================================================
 keyboard_read:
     lda #0
@@ -299,7 +328,7 @@ kdone:
     rts
 
 ;; ============================================================
-;; Enemy AI — chase player at variable speed
+;; Enemy AI
 ;; ============================================================
 enemy_do:
     lda enemy_init
@@ -312,13 +341,10 @@ enemy_do:
     rts
 
 e_active:
-    ;; Speed control: only move every N frames
-    ;; speed = 1 + (score / 500) → slow ramp up
     inc speed_ctr
     lda speed_ctr
-    cmp #2                     ; base speed: move every 2 frames
+    cmp #2
     bcc e_done
-
     lda #0
     sta speed_ctr
 
@@ -376,7 +402,7 @@ e_done:
     rts
 
 ;; ============================================================
-;; Score tick — +1 every 10 frames
+;; Score — +1 every 10 frames
 ;; ============================================================
 score_do:
     inc score_tmr
@@ -396,7 +422,7 @@ s_done:
     rts
 
 ;; ============================================================
-;; Collision check
+;; Collision
 ;; ============================================================
 collision_do:
     lda hit_timer
@@ -411,7 +437,6 @@ c_check:
 
     sta $d01e
 
-    ;; Add 50 points for being hit
     clc
     lda score
     adc #50
@@ -420,17 +445,16 @@ c_check:
     adc #0
     sta score+1
 
-    ;; Lose a life
     dec lives
 
-    ;; Death sound
+    ;; Hit sound
     lda #<5000
     sta $D400
     lda #>5000
     sta $D401
-    lda #$21                   ; saw + gate
+    lda #$21
     sta $D404
-    lda #$01                   ; ADSR: instant attack, instant decay
+    lda #$01
     sta $D405
     lda #$00
     sta $D406
@@ -439,7 +463,7 @@ c_check:
     lda #20
     sta snd_timer
 
-    ;; Move enemy to random position
+    ;; Randomize enemy position
     lda $d012
     and #$3f
     clc
@@ -453,7 +477,7 @@ c_check:
 
     lda #GAME_DYING
     sta state
-    lda #90                    ; 1.5 seconds dying
+    lda #90
     sta state_tmr
     lda #0
     sta flash_tmr
@@ -463,13 +487,11 @@ c_no:
     rts
 
 ;; ============================================================
-;; Update screen with score and lives
+;; Screen display update
 ;; ============================================================
 update_display:
-    ;; Convert score to digits
     jsr conv_score
 
-    ;; Write 5 digits at SCRN+6
     ldx #0
 ud_loop:
     lda digits, x
@@ -478,7 +500,6 @@ ud_loop:
     cpx #5
     bne ud_loop
 
-    ;; Write lives digit at SCRN+19
     lda lives
     clc
     adc #$30
@@ -486,7 +507,7 @@ ud_loop:
     rts
 
 ;; ============================================================
-;; 16-bit score → 5 decimal digits
+;; 16-bit → 5 decimal digits
 ;; ============================================================
 conv_score:
     lda score
@@ -535,28 +556,17 @@ pow_hi: !byte >10000, >1000, >100, >10, >1
 ;; ============================================================
 sound_tick:
     lda snd_timer
-    beq .st_done
+    beq st_done
     dec snd_timer
-    bne .st_done
+    bne st_done
     lda $D404
     and #$FE
     sta $D404
-.st_done:
+st_done:
     rts
 
 ;; ============================================================
-;; Play a jingle (game over)
-;; ============================================================
-play_jingle:
-    ;; Just play a descending note
-    ;; X:Y = pointer to frequency list
-    rts
-
-gameover_jingle:
-    !word 0
-
-;; ============================================================
-;; Temp variables
+;; Scratch variables
 ;; ============================================================
 tmp:     !byte 0
 tmp2:    !byte 0
