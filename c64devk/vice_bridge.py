@@ -34,7 +34,7 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
     args = [vice]
     if autostart:
         d64_path = _make_disk(prg_path)
-        args += ["-autostart", str(d64_path)]
+        args += ["-autostart-warp", "-autostart", str(d64_path)]
     else:
         args.append(str(prg_path))
         d64_path = None
