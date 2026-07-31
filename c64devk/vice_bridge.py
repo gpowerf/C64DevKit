@@ -33,21 +33,32 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
 
     args = [vice]
     if autostart:
-        args += [
-            "-autostartprgmode", "1",
-            "-autostart", str(prg_path),
-            "-keybuf", "run\n",
-        ]
+        d64_path = _make_disk(prg_path)
+        args += ["-autostart", str(d64_path)]
     else:
         args.append(str(prg_path))
+        d64_path = None
 
     if headless:
         args += ["-remotemonitor", "+sound"]
 
     print(f"  Launching: {vice}")
-    print(f"  PRG: {prg_path}")
+    if d64_path:
+        print(f"  Disk: {d64_path}")
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            start_new_session=True)
+
+
+def _make_disk(prg_path: Path) -> Path:
+    """Create a .d64 disk image containing the PRG file."""
+    d64_path = prg_path.with_suffix(".d64")
+    disk_args = [
+        "-format", f"c64devk,01", "d64", str(d64_path),
+        "-attach", str(d64_path),
+        "-write", str(prg_path), prg_path.stem.lower()[:16],
+    ]
+    subprocess.run(["c1541"] + disk_args, capture_output=True, timeout=10)
+    return d64_path
 
 
 def _setup_roms(rom_dir: Path) -> None:
@@ -75,13 +86,12 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
     if not (rom_dir / "kernal").exists():
         _setup_roms(rom_dir)
 
+    d64_path = _make_disk(prg_path)
     args = [
         vice,
         "-remotemonitor",
         "+sound",
-        "-autostartprgmode", "1",
-        "-autostart", str(prg_path),
-        "-keybuf", "run\n",
+        "-autostart", str(d64_path),
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
