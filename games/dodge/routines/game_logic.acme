@@ -82,9 +82,9 @@ copylp:
     sta $01
     cli
 
-    ;; Clear screen
+    ;; Clear screen to solid blocks (shows color RAM zones)
     ldx #0
-    lda #$20
+    lda #$a0
 clr_scr:
     sta SCRN, x
     sta SCRN+$100, x
@@ -141,9 +141,9 @@ z_nh:
     dex
     bne z_row
 
-    ;; Top line color = yellow
+    ;; Top line header in white
     ldx #0
-    lda #7
+    lda #1
 clr_col:
     sta $d800, x
     inx
