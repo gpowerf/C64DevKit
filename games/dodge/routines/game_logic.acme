@@ -552,14 +552,15 @@ score_do:
     bcc s_done
     lda #0
     sta score_tmr
-    ;; +2 in left zone (X < 128, MSB=0), +1 normally
+    ;; +2 green (X<128, MSB=0), +0 blue (MSB=1), +1 black (rest)
     lda $d010
-    and #$01                ; check MSB for sprite 0
-    bne s_normal            ; X >= 256 — not in left zone
+    and #$01
+    bne s_done              ; MSB set = X >= 256 = safe zone, no score
     lda $d000
     cmp #128
-    bcs s_normal
-    ;; bonus zone (left/green)
+    bcc s_bonus             ; green zone: +2
+    jmp s_normal            ; black zone: +1
+s_bonus:
     clc
     lda score
     adc #2
