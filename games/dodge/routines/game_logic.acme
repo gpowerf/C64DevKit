@@ -614,14 +614,6 @@ c_check:
 
     sta $d01e
 
-    clc
-    lda score
-    adc #50
-    sta score
-    lda score+1
-    adc #0
-    sta score+1
-
     dec lives
 
     ;; Move enemy to opposite side of player
