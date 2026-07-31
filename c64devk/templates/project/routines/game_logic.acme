@@ -1,5 +1,6 @@
 ;; game_logic.acme — Custom game logic
-;; Called every frame after joystick is read but before sprites are updated.
-;; Add your game-specific logic here.
+;; Called every frame after behaviors_update.
+;; IMPORTANT: place variables after the initial jmp, before .start
+;; Do NOT put !byte/!word at the very top — the CPU would execute them!
 
     rts

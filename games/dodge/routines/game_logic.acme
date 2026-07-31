@@ -2,10 +2,13 @@
 ;; Runs every frame after behaviors_update.
 ;; Enemy chases the player at 1 pixel/frame.
 
+    jmp .start
+
 enemy_x:    !byte 100
 enemy_y:    !byte 80
 enemy_init: !byte 0
 
+.start:
     ;; --- First-frame init ---
     lda enemy_init
     bne .do_ai
@@ -20,9 +23,9 @@ enemy_init: !byte 0
 
 .do_ai:
     ;; Read player position from VIC-II registers (sprite 0)
-    lda $d000               ; player_x lo
+    lda $d000
     sta $02
-    lda $d001               ; player_y
+    lda $d001
     sta $03
 
     ;; --- Chase X ---
@@ -47,7 +50,6 @@ enemy_init: !byte 0
     dec enemy_y
 
 .clamp:
-    ;; Clamp X to visible range (24-255, doesn't use $D010 MSB)
     lda enemy_x
     cmp #24
     bcs .xmax
@@ -75,7 +77,7 @@ enemy_init: !byte 0
 
 .write:
     lda enemy_x
-    sta $d002               ; sprite 1 X
+    sta $d002
     lda enemy_y
-    sta $d003               ; sprite 1 Y
+    sta $d003
     rts
