@@ -159,6 +159,9 @@ clr_col:
     sta $d002
     lda enemy_y
     sta $d003
+    lda $d010
+    and #$FD
+    sta $d010
 
 i_done:
     rts
@@ -213,6 +216,9 @@ die_count:
     sta $d002
     lda enemy_y
     sta $d003
+    lda $d010
+    and #$FD
+    sta $d010
     lda #$03
     sta $d015
     lda #150
@@ -342,6 +348,9 @@ restart:
     lda #80
     sta enemy_y
     sta $d003
+    lda $d010
+    and #$FD
+    sta $d010
 
     ;; Ensure both sprites visible
     lda #$03
@@ -481,6 +490,9 @@ enemy_do:
     sta $d002
     lda enemy_y
     sta $d003
+    lda $d010
+    and #$FD
+    sta $d010
     rts
 
 e_active:
@@ -541,6 +553,9 @@ e_wr:
     sta $d002
     lda enemy_y
     sta $d003
+    lda $d010
+    and #$FD                ; clear MSB for sprite 1 (enemy)
+    sta $d010
 e_done:
     rts
 
@@ -627,6 +642,9 @@ c_check:
 .spawn_x:
     sta enemy_x
     sta $d002
+    lda $d010
+    and #$FD                ; clear MSB for sprite 1
+    sta $d010
     lda $d001               ; player Y
     cmp #140
     bcc .spawn_bottom
