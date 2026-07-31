@@ -307,10 +307,10 @@ k1:
     ora #JOY_DOWN
     sta joystick_state
 k2:
-    lda #$fb
+    lda #$fd
     sta $dc00
     lda $dc01
-    and #$02
+    and #$04
     bne k3
     lda joystick_state
     ora #JOY_LEFT
@@ -319,7 +319,7 @@ k3:
     lda #$fb
     sta $dc00
     lda $dc01
-    and #$08
+    and #$04
     bne kdone
     lda joystick_state
     ora #JOY_RIGHT
