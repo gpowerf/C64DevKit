@@ -33,10 +33,11 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
 
     args = [vice]
     if autostart:
+        init_addr = _read_init_from_prg(prg_path)
         args += [
-            "-virtualdev8", "+drive8truedrive",
-            "-autostartprgmode", "0",
+            "-autostartprgmode", "1",
             "-autostart", str(prg_path),
+            "-keybuf", f"sys{init_addr}\n",
         ]
     else:
         args.append(str(prg_path))
@@ -48,6 +49,28 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
     print(f"  PRG: {prg_path}")
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            start_new_session=True)
+
+
+def _read_init_from_prg(prg_path: Path) -> int:
+    """Read the PRG file and compute the machine code init address
+    (the first executable byte after the BASIC SYS header)."""
+    data = prg_path.read_bytes()
+    if len(data) < 4:
+        return 2064
+    load_addr = data[0] | (data[1] << 8)
+    body = data[2:]
+    num_digits = 0
+    for i, b in enumerate(body):
+        if b == 0x9E:  # SYS token
+            for j in range(i + 1, min(i + 7, len(body))):
+                if body[j] == 0:
+                    num_digits = j - i - 1
+                    break
+            break
+    if num_digits == 0:
+        num_digits = 4
+    header_size = 8 + num_digits  # link(2) + line(2) + SYS(1) + digits + EOL(1) + EOP(2)
+    return load_addr + header_size
 
 
 def _setup_roms(rom_dir: Path) -> None:
@@ -75,13 +98,14 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
     if not (rom_dir / "kernal").exists():
         _setup_roms(rom_dir)
 
+    init_addr = _read_init_from_prg(prg_path)
     args = [
         vice,
         "-remotemonitor",
         "+sound",
-        "-virtualdev8", "+drive8truedrive",
-        "-autostartprgmode", "0",
+        "-autostartprgmode", "1",
         "-autostart", str(prg_path),
+        "-keybuf", f"sys{init_addr}\n",
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
