@@ -956,3 +956,337 @@ Modify the framework itself:
 - **No multiplication/division**: Use lookup tables or shift-add loops
 - **NMI vs IRQ**: NMI on RESTORE key cannot be disabled; just `RTI` at the start of your program
 - **$D019 write to ack**: Writing any value to $D019 acknowledges the interrupt; reading gives the status
+
+---
+
+## C64 Code Pattern Recipes
+
+These are working, tested 6502 patterns for common C64 tasks. Copy and adapt them.
+
+### Keyboard input (WASD → joystick_state)
+
+Reads the C64 keyboard matrix using CIA1 ($dc00/$dc01). Sets `joystick_state`
+to be consumed by the framework's `update_sprites` routine.
+
+```asm
+keyboard_read:
+    lda #0
+    sta joystick_state
+
+    ;; W (up) — column 1 ($fd), row 1 ($02)
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$02
+    bne k_chk_s
+    lda joystick_state
+    ora #JOY_UP
+    sta joystick_state
+k_chk_s:
+    ;; S (down) — column 1 ($fd), row 5 ($20)
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$20
+    bne k_chk_a
+    lda joystick_state
+    ora #JOY_DOWN
+    sta joystick_state
+k_chk_a:
+    ;; A (left) — column 2 ($fb), row 1 ($02)
+    lda #$fb
+    sta $dc00
+    lda $dc01
+    and #$02
+    bne k_chk_d
+    lda joystick_state
+    ora #JOY_LEFT
+    sta joystick_state
+k_chk_d:
+    ;; D (right) — column 2 ($fb), row 3 ($08)
+    lda #$fb
+    sta $dc00
+    lda $dc01
+    and #$08
+    bne k_done
+    lda joystick_state
+    ora #JOY_RIGHT
+    sta joystick_state
+k_done:
+    rts
+```
+
+**Keyboard matrix reference:**
+```
+Column ($dc00 write):         Row ($dc01 read):
+  $FE (bit 0 clear) = col 0     $01 (bit 0) = row 0  (DEL, RET, cursor keys)
+  $FD (bit 1 clear) = col 1     $02 (bit 1) = row 1  (W, 3, A, 4, Z, S, E, shift)
+  $FB (bit 2 clear) = col 2     $04 (bit 2) = row 2  (R, D, C, F, T, X)
+  $F7 (bit 3 clear) = col 3     $08 (bit 3) = row 3  (5, 6, Y, G, space ...)
+  $EF (bit 4 clear) = col 4     $10 (bit 4) = row 4
+  $DF (bit 5 clear) = col 5     $20 (bit 5) = row 5  (S, U, H, J ...)
+  $BF (bit 6 clear) = col 6     $40 (bit 6) = row 6
+  $7F (bit 7 clear) = col 7     $80 (bit 7) = row 7  (1, stop, CTRL ...)
+```
+
+### Write text to screen RAM
+
+Screen RAM at $0400-$07E7 (1000 bytes, 40x25). Each byte is a character code
+(PETSCII). The charset is defined by the VIC-II memory pointer ($D018).
+
+```asm
+; Write "SCORE: 0000" to the top line of the screen
+    ldx #0
+txt_loop:
+    lda score_text, x
+    beq txt_done
+    sta $0400, x         ; top-left corner of screen
+    inx
+    bne txt_loop         ; max 255 chars
+txt_done:
+    rts
+
+score_text: !text "score: 0000", 0
+```
+
+**PETSCII quick reference:**
+```
+$20 = space  $30-$39 = 0-9  $01 = A  $02 = B ... $1A = Z
+$00 = @     $1B = [         $1C = £          $1D = ]
+$1E = ↑     $1F = ←
+$41-$5A = a-z (lowercase in uppercase/graphics mode)
+```
+
+**Screen color RAM** at $D800-$DBE7 (1000 bytes, nybbles). Each byte sets
+the foreground color (0-15) for the corresponding screen position.
+
+```asm
+; Set top line text color to yellow (7)
+    ldx #0
+    lda #7
+col_loop:
+    sta $d800, x
+    inx
+    cpx #40
+    bne col_loop
+```
+
+### Sprite collision detection with cooldown
+
+Reads $D01E (sprite-sprite collision register). Using a cooldown timer
+prevents instant re-triggering.
+
+```asm
+hit_timer:  !byte 0       ; cooldown counter
+
+check_collision:
+    lda hit_timer
+    beq c_check            ; cooldown expired, check
+    dec hit_timer
+    rts
+
+c_check:
+    lda $d01e               ; read collision register
+    and #$03                ; sprite 0 + sprite 1 mask
+    beq c_no_hit
+
+    sta $d01e               ; acknowledge (write clears register)
+
+    ;; --- collision response ---
+    clc
+    lda score
+    adc #10
+    sta score
+    lda score+1
+    adc #0
+    sta score+1
+
+    lda #30
+    sta hit_timer           ; 30-frame cooldown
+
+c_no_hit:
+    rts
+```
+
+**Note**: `$D01E` reads return the collision state, then the register auto-clears
+on the next write. Reading `$D01F` (sprite-data collision) works the same way.
+Always `STA $D01E` after reading to ensure cleanup.
+
+### SID sound — play a note with duration timer
+
+```asm
+snd_timer:  !byte 0
+
+play_sound_c4:
+    ;; C-4 frequency = 4455 ($1167)
+    lda #<4455
+    sta $D400               ; voice 1 freq lo
+    lda #>4455
+    sta $D401               ; voice 1 freq hi
+    ;; ADSR: attack=2, decay=9
+    lda #$29
+    sta $D405
+    ;; Sustain=8, release=0
+    lda #$80
+    sta $D406
+    ;; Triangle wave + gate on
+    lda #$11
+    sta $D404
+    ;; Master volume = 15
+    lda #$0F
+    sta $D418
+    ;; 20 frame duration
+    lda #20
+    sta snd_timer
+    rts
+
+sound_tick:                 ; call once per frame
+    lda snd_timer
+    beq s_done
+    dec snd_timer
+    bne s_done
+    ;; Gate off voice 1
+    lda $D404
+    and #$FE
+    sta $D404
+s_done:
+    rts
+```
+
+### 16-bit score management
+
+```asm
+score:  !byte 0, 0         ; 16-bit little-endian
+
+add_to_score:
+    clc
+    lda score
+    adc #10                 ; low byte
+    sta score
+    lda score+1
+    adc #0                  ; carry into high byte
+    sta score+1
+    rts
+
+subtract_from_score:
+    sec
+    lda score
+    sbc #10
+    sta score
+    lda score+1
+    sbc #0
+    sta score+1
+    rts
+```
+
+### Pseudo-random number (using raster line)
+
+```asm
+; Returns random-ish byte in A. Uses VIC-II raster counter ($D012)
+; which cycles 0-311 every frame.
+get_random:
+    lda $d012               ; raster line (changes rapidly)
+    eor $dc04               ; CIA1 timer A lo (free-running)
+    adc frame_ready         ; frame flag
+    rts
+
+; Get random position in range 24-231 for X
+random_x:
+    jsr get_random
+    and #$7F                ; 0-127
+    clc
+    adc #50                 ; 50-177
+    rts
+```
+
+### Simple state machine (playing → dying → game over)
+
+```asm
+GAME_PLAYING = 0
+GAME_DYING   = 1
+GAME_OVER    = 2
+
+game_state:  !byte GAME_PLAYING
+state_timer: !byte 0
+lives:       !byte 3
+
+game_logic:
+    lda game_state
+    cmp #GAME_PLAYING
+    beq do_playing
+    cmp #GAME_DYING
+    beq do_dying
+    cmp #GAME_OVER
+    beq do_game_over
+    rts
+
+do_playing:
+    ; ... normal game logic ...
+    ; on death:
+    dec lives
+    lda lives
+    beq .go_game_over
+    lda #GAME_DYING
+    sta game_state
+    lda #60
+    sta state_timer
+    rts
+.go_game_over:
+    lda #GAME_OVER
+    sta game_state
+    rts
+
+do_dying:
+    ; flash sprites, wait
+    dec state_timer
+    bne .still_dying
+    lda #GAME_PLAYING
+    sta game_state
+.still_dying:
+    rts
+
+do_game_over:
+    ; wait for SPACE to restart
+    lda #$EF               ; column for space bar
+    sta $dc00
+    lda $dc01
+    and #$10
+    bne .waiting
+    ; restart
+    lda #3
+    sta lives
+    lda #0
+    sta score
+    sta score+1
+    lda #GAME_PLAYING
+    sta game_state
+.waiting:
+    rts
+```
+
+### Inline variable data (avoid executing data as code)
+
+When placing variable data at the top of a routine file included via `!source`,
+always jump past it:
+
+```asm
+    jmp gcode              ; skip variable data
+
+my_var:   !byte 0
+counter:  !byte 0, 0
+
+gcode:                     ; actual code starts here
+    inc my_var
+    rts
+```
+
+**Never do this:**
+```asm
+my_var:  !byte 100         ; CPU executes 100 ($64) as opcode!
+counter: !byte 0
+    lda my_var             ; this code is unreachable junk
+```
+
+The first byte of data gets executed as an instruction. `$64` on NMOS 6502 is
+undefined (may crash/NOP). `$00` is BRK (causes KERNAL interrupt → back to BASIC).
+
