@@ -147,10 +147,11 @@ def _emit_sprite_memory_setup(spec: "ProjectSpec", lines: list[str]) -> None:
         return
     lines.append("\t;; -- Sprite memory setup --")
     sprite_ptr_base = spec.memory.sprite_data // 64
-    lines.append(f"\tlda #${sprite_ptr_base:02X}")
     screen_addr = spec.screen.screen_ram
     sprite_ptrs_base = screen_addr + 0x03F8
     for s in spec.sprites:
+        ptr = sprite_ptr_base + s.index
+        lines.append(f"\tlda #${ptr:02X}")
         lines.append(f"\tsta ${sprite_ptrs_base + s.index:04X}")
     lines.append("")
 
