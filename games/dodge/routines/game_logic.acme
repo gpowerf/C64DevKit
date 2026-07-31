@@ -298,47 +298,57 @@ rest_clr:
     rts
 
 ;; ============================================================
-;; Keyboard — WASD
+;; Keyboard — WASD, directly moves player with bounds
 ;; ============================================================
 keyboard_read:
     lda #0
-    sta joystick_state
+    sta joystick_state      ; disable auto-move from update_sprites
 
+    ;; W (up) — column 1 ($FD), row 1 ($02)
     lda #$fd
     sta $dc00
     lda $dc01
     and #$02
     bne k1
-    lda joystick_state
-    ora #JOY_UP
-    sta joystick_state
+    lda $d001
+    cmp #50                 ; min Y
+    bcc k1
+    beq k1
+    dec $d001
 k1:
+    ;; S (down) — column 1 ($FD), row 5 ($20)
     lda #$fd
     sta $dc00
     lda $dc01
     and #$20
     bne k2
-    lda joystick_state
-    ora #JOY_DOWN
-    sta joystick_state
+    lda $d001
+    cmp #229                ; max Y
+    bcs k2
+    inc $d001
 k2:
+    ;; A (left) — column 1 ($FD), row 2 ($04)
     lda #$fd
     sta $dc00
     lda $dc01
     and #$04
     bne k3
-    lda joystick_state
-    ora #JOY_LEFT
-    sta joystick_state
+    lda $d000
+    cmp #24                 ; min X
+    bcc k3
+    beq k3
+    dec $d000
 k3:
+    ;; D (right) — column 2 ($FB), row 2 ($04)
     lda #$fb
     sta $dc00
     lda $dc01
     and #$04
     bne kdone
-    lda joystick_state
-    ora #JOY_RIGHT
-    sta joystick_state
+    lda $d000
+    cmp #250                ; max X (8-bit, before wrap)
+    bcs kdone
+    inc $d000
 kdone:
     rts
 
