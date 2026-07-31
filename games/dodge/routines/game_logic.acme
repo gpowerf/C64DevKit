@@ -548,36 +548,34 @@ e_done:
 ;; Score — +1 every 10 frames
 ;; ============================================================
 score_do:
-    ;; Zone detection
+    ;; Safe zone entry penalty (once per visit)
     lda $d010
     and #$01
-    beq .not_safe            ; MSB = 0, not in safe zone
+    beq .not_safe
 
-    ;; In safe zone (blue/right, X >= 256)
+    ;; In safe zone (blue)
     lda last_safe
-    bne .safe_tick           ; already in safe zone, no penalty
-    ;; Just entered safe zone: lose 5 points (floor 0)
+    bne s_done               ; already safe, skip all scoring
     lda #1
     sta last_safe
+    ;; Just entered: -5 points, floor 0
     sec
     lda score
     sbc #5
     sta score
     lda score+1
     sbc #0
-    bcs .safe_ok
-    ;; Underflow: clamp to 0
+    bcs s_done
     lda #0
     sta score
     sta score+1
-.safe_ok:
     rts
 
 .not_safe:
     lda #0
-    sta last_safe            ; not in safe zone
+    sta last_safe
 
-.safe_tick:
+    ;; Score tick
     inc score_tmr
     lda score_tmr
     cmp #20
@@ -585,11 +583,10 @@ score_do:
     lda #0
     sta score_tmr
 
-    ;; Only green zone (X < 128, MSB=0) gives points (+2)
+    ;; Green zone (X < 128): +2, black zone: 0
     lda $d000
     cmp #128
-    bcs s_done               ; black zone: 0 points
-    ;; Green zone: +2
+    bcs s_done
     clc
     lda score
     adc #2
@@ -597,7 +594,6 @@ score_do:
     lda score+1
     adc #0
     sta score+1
-    rts
 
 s_done:
     rts
