@@ -90,6 +90,10 @@ clr_scr:
     inx
     bne clr_scr
 
+    ;; Visible border (dark gray)
+    lda #11
+    sta $d020
+
     ;; Top line color = yellow
     ldx #0
     lda #7
@@ -298,11 +302,11 @@ rest_clr:
     rts
 
 ;; ============================================================
-;; Keyboard — WASD, directly moves player with bounds
+;; Keyboard — WASD, directly moves player with 9-bit X bounds
 ;; ============================================================
 keyboard_read:
     lda #0
-    sta joystick_state      ; disable auto-move from update_sprites
+    sta joystick_state
 
     ;; W (up) — column 1 ($FD), row 1 ($02)
     lda #$fd
@@ -311,7 +315,7 @@ keyboard_read:
     and #$02
     bne k1
     lda $d001
-    cmp #50                 ; min Y
+    cmp #50
     bcc k1
     beq k1
     dec $d001
@@ -323,7 +327,7 @@ k1:
     and #$20
     bne k2
     lda $d001
-    cmp #229                ; max Y
+    cmp #229
     bcs k2
     inc $d001
 k2:
@@ -333,10 +337,26 @@ k2:
     lda $dc01
     and #$04
     bne k3
+    ;; 9-bit left: check bounds and MSB
     lda $d000
-    cmp #24                 ; min X
-    bcc k3
-    beq k3
+    cmp #24
+    bne .do_left
+    lda $d010
+    and #$01
+    beq k3               ; at X=24 with MSB=0, stop
+    ;; at X=280 (24 + 256*1), can still go left
+.do_left:
+    lda $d000
+    bne .dec_left        ; X > 0 simple decrement
+    ;; X low = 0, check if MSB set (X >= 256)
+    lda $d010
+    and #$01
+    beq k3               ; X=0, stop
+    ;; X >= 256 with low=0, dec wraps to 255, clear MSB
+    dec $d010
+    dec $d000             ; 0 → 255
+    jmp k3
+.dec_left:
     dec $d000
 k3:
     ;; D (right) — column 2 ($FB), row 2 ($04)
@@ -345,9 +365,24 @@ k3:
     lda $dc01
     and #$04
     bne kdone
+    ;; 9-bit right with bound X=320
     lda $d000
-    cmp #255                ; max X before MSB needed
-    bcs kdone
+    cmp #64                ; 320 - 256 = 64
+    bcc .do_right          ; low < 64, safe to inc
+    lda $d010
+    and #$01
+    bne kdone              ; X >= 320 (low>=64 and MSB=1), stop
+.do_right:
+    lda $d000
+    cmp #255
+    bne .inc_right         ; won't wrap
+    ;; wrap from 255: inc low (255→0), set MSB
+    inc $d000              ; becomes 0
+    lda $d010
+    ora #$01
+    sta $d010
+    jmp kdone
+.inc_right:
     inc $d000
 kdone:
     rts
