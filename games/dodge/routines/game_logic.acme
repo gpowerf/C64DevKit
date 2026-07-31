@@ -167,7 +167,7 @@ die_count:
     sta $d003
     lda #$03
     sta $d015
-    lda #90
+    lda #150
     sta hit_timer
     lda #GAME_PLAYING
     sta state
@@ -507,17 +507,25 @@ c_check:
 
     dec lives
 
-    ;; Move enemy away immediately (write to VIC-II registers)
-    lda $d012
-    and #$3f
-    clc
-    adc #80
+    ;; Move enemy to opposite side of player
+    lda $d000               ; player X low
+    cmp #128
+    bcc .spawn_right
+    lda #50                 ; spawn left
+    jmp .spawn_x
+.spawn_right:
+    lda #200                ; spawn right
+.spawn_x:
     sta enemy_x
     sta $d002
-    eor #$55
-    and #$3f
-    clc
-    adc #60
+    lda $d001               ; player Y
+    cmp #140
+    bcc .spawn_bottom
+    lda #60                 ; spawn top
+    jmp .spawn_y
+.spawn_bottom:
+    lda #210                ; spawn bottom
+.spawn_y:
     sta enemy_y
     sta $d003
 
@@ -539,7 +547,7 @@ c_check:
 
     lda #GAME_DYING
     sta state
-    lda #90
+    lda #150
     sta state_tmr
     lda #0
     sta flash_tmr
