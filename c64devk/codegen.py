@@ -90,13 +90,14 @@ def _emit_init(spec: "ProjectSpec", init_addr: int, lines: list[str]) -> None:
         lines.append("\tlda #$33")
         lines.append("\tsta $01")
         lines.append("\tldx #0")
+        lines.append(".ccloop:")
         for page in range(8):
             src = 0xD000 + page * 0x100
             dst = spec.screen.charset_addr + page * 0x100
             lines.append(f"\tlda ${src:04X}, x")
             lines.append(f"\tsta ${dst:04X}, x")
         lines.append("\tinx")
-        lines.append("\tbne *-16      ; continue copy loop")
+        lines.append("\tbne .ccloop")
         lines.append("\tlda #$37")
         lines.append("\tsta $01")
         lines.append("\tcli")
