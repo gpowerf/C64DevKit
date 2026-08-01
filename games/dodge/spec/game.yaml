@@ -8,4 +8,5 @@ border_color: 11           # dark gray
 # Color RAM split into 3 vertical zones by game init:
 #   green (cols  0-12): score zone
 #   black (cols 13-27): neutral zone
-#   blue  (cols 28-39): safe zone
+#   dmz  (cols 28-39):  safe zone — Yars' Revenge style digital noise
+#                        (animated random characters + cycling colours)

@@ -46,7 +46,7 @@ SID note frequency table: 72 notes (C-2 to B-7), PAL C64 clock. In macro `+c64_n
 
 6 static verification checks per build: symbols present, PRG structure, sprite data address, sprite init presence, behavior handler presence, spec validation (memory bounds, sprite ranges, name references).
 
-Live VICE testing: implemented but requires xvfb (GTK3 VICE needs display). Auto-falls back to static mode.
+Live VICE testing: each test case launches a fresh VICE instance to avoid inter-test state corruption. VICE monitor uses "g" (go) to continue, "delete N" to remove breakpoints. Socket drain handled with proper prompt draining. Requires xvfb for headless operation.
 
 ## VICE launcher
 
@@ -67,7 +67,9 @@ Complete game with keyboard controls, enemy AI, scoring zones, lives, game over,
 
 **Game logic** (`routines/game_logic.acme`, ~600 lines): keyboard input (WASD, 9-bit X with $D010), enemy AI (chase, clamped 24-255), collision (opposite-side respawn, 150-frame invincibility, state machine PLAYING/DYING/GAME_OVER), sound (death saw), zone scoring, game over screen + restart.
 
-**Sprites**: 64-byte hand-drawn `.spr` files — yellow faceted diamond (player), red skull with eye sockets/nose/teeth (enemy). `assets/sprites/`.
+**Sprites**: Player uses 4 directional spaceship sprites — `ship_r.spr` (right/$80), `ship_l.spr` (left/$81), `ship_u.spr` (up/$82), `ship_d.spr` (down/$83). Enemy uses `skull.spr` ($84). `player_dir` variable tracks direction (0-3), and the sprite pointer $07F8 is updated each frame.
+
+**Sprites spec**: Extended `SpriteDef` with `data_files: dict` for multi-sprite support. The `codegen.py` `_emit_sprite_data` emits 4 blocks for sprites with `data_files`, and `_emit_sprite_memory_setup` calculates correct 64-byte-block pointers accounting for multi-block sprites.
 
 **Screen**: VIC bank 0, ROM charset copied to $3800 by framework codegen. Solid block chars ($A0) fill screen for color RAM visibility. Dark gray border ($D020=11).
 
@@ -75,6 +77,9 @@ Complete game with keyboard controls, enemy AI, scoring zones, lives, game over,
 
 ## Known bugs & quirks
 
+- **VICE kill crash** (fixed): `process.kill()` with `start_new_session=True` only killed parent process, leaving orphaned GTK/X11 children. Fixed with `os.killpg()` (SIGTERM → SIGKILL).
+- **VICE remote monitor** (fixed): "c" command doesn't work — use "g" (go). `delete 1-99` is invalid — use individual `delete N`. Prompt `(C:$XXXX) ` lacks trailing newline — drains after each read.
+- **Enemy safe zone entry** (fixed): Changed enemy max X clamp from 255 to 200.
 - **Keyboard matrix**: WASD hard-coded in game_logic.acme. A=col1/row2 ($04), D=col2/row2 ($04), W=col1/row1 ($02), S=col1/row5 ($20). Same matrix in SKILL.md code patterns.
 - **!scr lowercase**: ACME's `!scr` only converts a-z to PETSCII screen codes. Uppercase A-Z passes through as ASCII → graphics characters. Always use lowercase in YAML `display_text`.
 - **Inline data**: Routines files must start with `jmp .start` to skip over variable declarations. `$00` byte executes as BRK → crash to BASIC READY.

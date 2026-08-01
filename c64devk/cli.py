@@ -39,6 +39,7 @@ def main() -> None:
     p_run.add_argument("--headless", action="store_true", help="Run without GUI")
     p_test = sub.add_parser("test", help="Run test assertions")
     p_test.add_argument("--project", "-p", default=".", help="Project directory")
+    p_test.add_argument("--static", "-s", action="store_true", help="Skip live VICE tests")
     p_clean = sub.add_parser("clean", help="Remove output/ directory")
     p_clean.add_argument("--project", "-p", default=".", help="Project directory")
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
@@ -58,7 +59,7 @@ def main() -> None:
         case "run":
             cmd_run(args.project, args.headless)
         case "test":
-            cmd_test(args.project)
+            cmd_test(args.project, args.static)
         case "clean":
             cmd_clean(args.project)
         case "setup":
@@ -174,7 +175,7 @@ def cmd_run(project_path: str, headless: bool) -> None:
     launch_vice(prg_path, headless=headless)
 
 
-def cmd_test(project_path: str) -> None:
+def cmd_test(project_path: str, static_only: bool = False) -> None:
     project_dir = Path(project_path).resolve()
     if not (project_dir / "c64devk.yaml").exists():
         print(f"Error: no c64devk.yaml found in '{project_dir}'", file=sys.stderr)
@@ -195,17 +196,21 @@ def cmd_test(project_path: str) -> None:
 
     test_path = project_dir / "spec" / "tests.yaml"
 
-    from .test_runner import get_static_results, print_results
+    from .test_runner import get_static_results, run_static_tests, print_results
 
     print(f"\n{'=' * 40}")
     print(f"Testing: {spec.name}")
 
-    results = get_static_results(prg_path, sym_path, test_path, spec)
-    mode = "static"
-    if any(r.test_name.startswith("live:") for r in results):
-        mode = "live"
-    elif any(r.test_name == "init_state" for r in results):
-        mode = "live"
+    if static_only:
+        results = run_static_tests(prg_path, sym_path, test_path, spec)
+        mode = "static"
+    else:
+        results = get_static_results(prg_path, sym_path, test_path, spec)
+        mode = "static"
+        if any(r.test_name.startswith("live:") for r in results):
+            mode = "live"
+        elif any(r.test_name == "init_state" for r in results):
+            mode = "live"
 
     print_results(results, mode)
 

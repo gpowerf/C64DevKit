@@ -64,6 +64,7 @@ class SpriteDef:
     expand_x: bool = False
     expand_y: bool = False
     data_file: str = ""
+    data_files: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict, idx: int) -> "SpriteDef":
@@ -81,6 +82,7 @@ class SpriteDef:
             expand_x=d.get("expand_x", False),
             expand_y=d.get("expand_y", False),
             data_file=d.get("data_file", _default_sprite_path(idx)),
+            data_files=d.get("data_files", {}),
         )
 
 

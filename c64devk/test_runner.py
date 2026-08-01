@@ -254,34 +254,77 @@ def get_static_results(prg_path: Path, sym_path: Path, test_path: Path, spec: "P
 
 
 def _try_live_test(prg_path: Path, sym_path: Path, test_path: Path, spec: "ProjectSpec") -> list[TestResult] | None:
-    """Try to run VICE headless and execute tests. Returns None if VICE can't start."""
+
+    test_spec = TestSpec.from_yaml(test_path)
+    if not test_spec.tests:
+        return None  # fall back to static
+
+    results: list[TestResult] = []
+    for test in test_spec.tests:
+        try:
+            tr = run_test_in_fresh_vice(prg_path, sym_path, spec, test)
+        except Exception as e:
+            tr = TestResult(test_name=f"live:{test.name}")
+            tr.passed = False
+            tr.failures.append(f"exception: {e}")
+        results.append(tr)
+    return results
+
+
+def run_test_in_fresh_vice(prg_path: Path, sym_path: Path,
+                           spec: "ProjectSpec", test: "TestCase") -> TestResult:
+    """Launch a fresh VICE instance for a single test case."""
     from .vice_bridge import launch_headless, ViceMonitor, parse_symbols
 
     proc = launch_headless(prg_path)
     if not proc:
-        return None
+        tr = TestResult(test_name=f"live:{test.name}")
+        tr.passed = False
+        tr.failures.append("VICE failed to start")
+        return tr
 
     time.sleep(0.8)
+    if proc.poll() is not None:
+        tr = TestResult(test_name=f"live:{test.name}")
+        tr.passed = False
+        tr.failures.append(f"VICE exited with code {proc.poll()}")
+        return tr
 
     monitor = ViceMonitor()
     if not monitor.connect(timeout=5.0):
         monitor.kill_vice(proc)
-        return None
+        tr = TestResult(test_name=f"live:{test.name}")
+        tr.passed = False
+        tr.failures.append("connect failed")
+        return tr
 
     symbols = parse_symbols(sym_path)
     main_loop = symbols.get("main_loop", 0)
     if not main_loop:
         monitor.kill_vice(proc)
-        return None
+        tr = TestResult(test_name=f"live:{test.name}")
+        tr.passed = False
+        tr.failures.append("no main_loop symbol")
+        return tr
 
-    results: list[TestResult] = []
+    if not monitor.step_frame(main_loop, timeout=5.0):
+        monitor.kill_vice(proc)
+        tr = TestResult(test_name=f"live:{test.name}")
+        tr.passed = False
+        tr.failures.append("sync failed")
+        return tr
 
-    result = TestResult(test_name="init_state")
+    monitor.disable_breakpoints()
+    tr = TestResult(test_name=f"live:{test.name}")
+    _run_test_case(monitor, symbols, main_loop, spec, test, tr)
+    monitor.kill_vice(proc)
+    return tr
+
+
+def _check_init_state(monitor, spec, result):
     for s in spec.sprites:
-        x_addr = 0xD000 + s.index * 2
-        y_addr = 0xD001 + s.index * 2
-        x_val = monitor.peek(x_addr)
-        y_val = monitor.peek(y_addr)
+        x_val = monitor.peek(0xD000 + s.index * 2)
+        y_val = monitor.peek(0xD001 + s.index * 2)
         if x_val != (s.x & 0xFF):
             result.passed = False
             result.failures.append(f"{s.name} x: expected <{s.x & 0xFF}>, got <{x_val}>")
@@ -290,17 +333,75 @@ def _try_live_test(prg_path: Path, sym_path: Path, test_path: Path, spec: "Proje
             result.failures.append(f"{s.name} y: expected <{s.y}>, got <{y_val}>")
     if result.passed:
         result.failures = ["all sprites at configured positions"]
-    results.append(result)
 
-    test_spec = TestSpec.from_yaml(test_path)
-    for test in test_spec.tests:
-        tr = TestResult(test_name=f"live:{test.name}")
-        tr.passed = True
-        tr.failures = ["live test not fully implemented yet"]
-        results.append(tr)
 
-    monitor.kill_vice(proc)
-    return results
+def _run_test_case(monitor, symbols, main_loop, spec, test, result):
+    """Execute a test case: run each step in sequence, stop on first failure."""
+    for step in test.steps:
+        _exec_step(monitor, symbols, main_loop, spec, step, result)
+        if not result.passed:
+            break
+
+
+def _exec_step(monitor, symbols, main_loop, spec, step, result):
+    """Execute a single test step (advance, wait, poke, or check)."""
+    if "advance" in step:
+        _exec_advance(monitor, main_loop, int(step["advance"]), result)
+    elif "wait" in step:
+        _exec_advance(monitor, main_loop, int(step["wait"]), result)
+    elif "poke" in step:
+        _exec_poke(monitor, symbols, step["poke"], result)
+    elif "check" in step:
+        _exec_check(monitor, symbols, step["check"], result)
+    else:
+        result.passed = False
+        result.failures.append(f"unknown step: {list(step.keys())}")
+
+
+def _exec_advance(monitor, main_loop, frames, result):
+    """Advance emulation by N frames via breakpoints at main_loop."""
+    for i in range(frames):
+        if not monitor.step_frame(main_loop):
+            result.passed = False
+            result.failures.append(f"advance frame {i+1}/{frames} failed")
+            return
+        monitor.disable_breakpoints()
+
+
+def _resolve_addr(symbols, addr, label):
+    """Resolve an address from symbol table. Symbol takes precedence over raw addr."""
+    if label and label in symbols:
+        return symbols[label]
+    return addr
+
+
+def _exec_poke(monitor, symbols, params, result):
+    """Write value(s) to emulated memory. Supports addr, label, and size."""
+    addr = _resolve_addr(symbols,
+                         _parse_addr(params.get("addr", params.get("address", 0))),
+                         str(params.get("label", "")))
+    value = int(params.get("value", 0))
+    size = int(params.get("size", 1))
+    if size == 2:
+        monitor.poke16(addr, value)
+    else:
+        monitor.poke(addr, value)
+
+
+def _exec_check(monitor, symbols, params, result):
+    """Read value from emulated memory and evaluate assertion."""
+    assertion = Assertion.from_dict(params)
+    addr = _resolve_addr(symbols, assertion.addr, assertion.label)
+    value = monitor.peek(addr, assertion.size)
+    if not assertion.check(value):
+        result.passed = False
+        desc = assertion.describe()
+        if assertion.size == 1:
+            result.failures.append(f"{desc}: got {value} (${value:02X})")
+        elif assertion.size == 2:
+            result.failures.append(f"{desc}: got {value} (${value:04X})")
+        else:
+            result.failures.append(f"{desc}: got {value}")
 
 
 def print_results(results: list[TestResult], mode: str = "static") -> None:

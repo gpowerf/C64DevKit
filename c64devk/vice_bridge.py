@@ -2,6 +2,7 @@
 
 import re
 import os
+import signal
 import subprocess
 import socket
 import time
@@ -107,7 +108,8 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         "-autostart", str(prg_path),
         "-keybuf", f"sys{init_addr}\r",
     ]
-    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           start_new_session=True)
 
 
 def launch_debug(prg_path: Path) -> subprocess.Popen | None:
@@ -166,22 +168,31 @@ class ViceMonitor:
         return self._read_response()
 
     def _read_response(self, timeout: float = 2.0) -> str:
+        """Read response from VICE monitor.
+
+        VICE appends a prompt '(C:$XXXX) ' without a trailing newline
+        after every response. We read the main response body first,
+        then drain the trailing prompt to keep the socket clean."""
         if not self._sock:
             return ""
         self._sock.settimeout(timeout)
         data = bytearray()
-        while True:
-            try:
+        try:
+            chunk = self._sock.recv(4096)
+            if not chunk:
+                return ""
+            data.extend(chunk)
+        except socket.timeout:
+            return ""
+        self._sock.settimeout(0.15)
+        try:
+            while True:
                 chunk = self._sock.recv(4096)
                 if not chunk:
                     break
                 data.extend(chunk)
-                if b"\n" in data:
-                    break
-            except socket.timeout:
-                break
-            except OSError:
-                break
+        except (socket.timeout, OSError):
+            pass
         return data.decode("utf-8", errors="replace").strip()
 
     def read_memory(self, addr: int, length: int = 1) -> bytes:
@@ -214,6 +225,10 @@ class ViceMonitor:
     def poke(self, addr: int, value: int) -> None:
         self.write_memory(addr, value & 0xFF)
 
+    def poke16(self, addr: int, value: int) -> None:
+        self.write_memory(addr, value & 0xFF)
+        self.write_memory(addr + 1, (value >> 8) & 0xFF)
+
     def get_register(self, reg: str) -> int:
         resp = self.send("r")
         for line in resp.split("\n"):
@@ -227,34 +242,66 @@ class ViceMonitor:
         self.send(f"break ${addr:04X}")
 
     def disable_breakpoints(self) -> None:
-        self.send("break")
-        self.send("delete 1-99")
+        """Delete all possible breakpoints (1-5)."""
+        if not self._sock:
+            return
+        for i in range(1, 6):
+            self._sock.sendall(f"delete {i}\n".encode())
+            self._sock.settimeout(0.3)
+            try:
+                self._sock.recv(4096)
+            except (socket.timeout, OSError):
+                pass
+        self._drain()
 
     def continue_execution(self) -> None:
-        self.send("c")
+        self.send("g")
 
-    def advance_frames(self, count: int, main_loop_addr: int, timeout_per_frame: float = 3.0) -> bool:
-        """Advance N frames by setting a breakpoint at main_loop and continuing.
+    def _drain(self) -> None:
+        """Drain any pending data from socket. Restores original timeout."""
+        if not self._sock:
+            return
+        old_timeout = self._sock.gettimeout()
+        try:
+            self._sock.settimeout(0.1)
+            while True:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    break
+        except (socket.timeout, OSError):
+            pass
+        finally:
+            self._sock.settimeout(old_timeout)
+
+    def step_frame(self, breakpoint_addr: int, timeout: float = 5.0) -> bool:
+        """Advance one frame by breaking at the given address.
+
+        Uses the raw VICE-monitor pattern: delete old breakpoints,
+        sleep briefly, set a new breakpoint, sleep, resume with 'g',
+        sleep, and drain the socket.  Returns True on success."""
+        if not self._sock:
+            return False
+        self._drain()
+        self.disable_breakpoints()
+        self._sock.sendall(f"break ${breakpoint_addr:04X}\n".encode())
+        time.sleep(0.2)
+        self._drain()
+        self._sock.sendall(b"g\n")
+        time.sleep(0.3)
+        self._drain()
+        return True
+
+    def advance_frames(self, count: int, main_loop_addr: int, timeout_per_frame: float = 5.0) -> bool:
+        """Advance N frames by stepping through breakpoints at main_loop.
 
         Returns True if all frames advanced successfully."""
+        self._drain()
         self.disable_breakpoints()
-        self.set_breakpoint(main_loop_addr)
         for _ in range(count):
-            self.continue_execution()
-            time.sleep(0.15)
-            if not self._wait_for_break(timeout_per_frame):
+            if not self.step_frame(main_loop_addr, timeout_per_frame):
                 self.disable_breakpoints()
                 return False
         self.disable_breakpoints()
-        return True
-
-    def _wait_for_break(self, timeout: float) -> bool:
-        """Wait until VICE reports it has stopped (at a breakpoint)."""
-        self._sock.settimeout(timeout)
-        try:
-            self._sock.recv(1024)  # consume any pending data
-        except (socket.timeout, OSError):
-            pass
         return True
 
     def disconnect(self) -> None:
@@ -266,11 +313,22 @@ class ViceMonitor:
             self._sock = None
 
     def kill_vice(self, process: subprocess.Popen | None) -> None:
-        """Kill the VICE process and disconnect."""
+        """Kill the VICE process group safely. SIGTERM first, then SIGKILL."""
         self.disconnect()
-        if process:
+        if not process or process.poll() is not None:
+            return
+        try:
+            pid = process.pid
+            if pid:
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGTERM)
+                    process.wait(timeout=3)
+                except (ProcessLookupError, subprocess.TimeoutExpired, PermissionError):
+                    pass
+        finally:
             try:
-                process.kill()
-                process.wait(timeout=2)
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=2)
             except (ProcessLookupError, subprocess.TimeoutExpired):
                 pass

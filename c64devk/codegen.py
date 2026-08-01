@@ -168,10 +168,12 @@ def _emit_sprite_memory_setup(spec: "ProjectSpec", lines: list[str]) -> None:
     sprite_ptr_base = spec.memory.sprite_data // 64
     screen_addr = spec.screen.screen_ram
     sprite_ptrs_base = screen_addr + 0x03F8
+    block_offset = 0
     for s in spec.sprites:
-        ptr = sprite_ptr_base + s.index
+        ptr = sprite_ptr_base + block_offset
         lines.append(f"\tlda #${ptr:02X}")
         lines.append(f"\tsta ${sprite_ptrs_base + s.index:04X}")
+        block_offset += 4 if s.data_files else 1
     lines.append("")
 
 
@@ -790,10 +792,19 @@ def _emit_sprite_data(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append(f"* = ${spec.memory.sprite_data:04X}")
     lines.append("")
     for s in spec.sprites:
-        lines.append(f";; Sprite {s.index}: {s.name}")
-        if s.data_file and (spec.project_dir / s.data_file).exists():
+        if s.data_files:
+            for direction in ("right", "left", "up", "down"):
+                fpath = s.data_files.get(direction, "")
+                lines.append(f";; Sprite {s.index}: {s.name} ({direction})")
+                if fpath and (spec.project_dir / fpath).exists():
+                    lines.append(f'\t!bin "{fpath}"')
+                else:
+                    lines.append(f"\t+c64_sprite_placeholder {s.index}")
+        elif s.data_file and (spec.project_dir / s.data_file).exists():
+            lines.append(f";; Sprite {s.index}: {s.name}")
             lines.append(f'\t!bin "{s.data_file}"')
         else:
+            lines.append(f";; Sprite {s.index}: {s.name}")
             lines.append(f"\t+c64_sprite_placeholder {s.index}")
     lines.append("")
 

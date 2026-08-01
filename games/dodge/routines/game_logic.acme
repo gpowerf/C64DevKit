@@ -20,6 +20,12 @@ init_done:  !byte 0
 go_drawn:   !byte 0
 speed_ctr:  !byte 0
 last_safe:  !byte 0
+player_dir: !byte 0    ; 0=right 1=left 2=up 3=down
+dmz_seed:   !byte $5A  ; LFSR seed for DMZ noise
+dmz_color:  !byte 6    ; cycling color index (0-7)
+dmz_timer:  !byte 1    ; countdown to next DMZ refresh
+dmz_col:    !byte 0
+dmz_row:    !byte 1
 
 GAME_PLAYING = 0
 GAME_DYING   = 1
@@ -29,6 +35,12 @@ SCRN = $0400
 gstart:
     jsr init_once
     jsr keyboard_read
+    ;; Set sprite 0 pointer ($07F8) = $80 + player_dir
+    lda player_dir
+    clc
+    adc #$80
+    sta $07F8
+    jsr dmz_do
     lda state
     cmp #GAME_PLAYING
     bne g1
@@ -121,6 +133,7 @@ clr_col:
     lda $d010
     and #$FD
     sta $d010
+    jsr dmz_init
     rts
 
 ;; ============================================================
@@ -347,6 +360,8 @@ keyboard_read:
     bcc k1
     beq k1
     dec $d001
+    lda #2
+    sta player_dir
 k1:
     lda #$fd
     sta $dc00
@@ -357,6 +372,8 @@ k1:
     cmp #229
     bcs k2
     inc $d001
+    lda #3
+    sta player_dir
 k2:
     lda #$fd
     sta $dc00
@@ -370,6 +387,8 @@ k2:
     and #$01
     beq k3
 .do_left:
+    lda #1
+    sta player_dir
     lda $d000
     bne .dec_left
     lda $d010
@@ -393,6 +412,8 @@ k3:
     and #$01
     bne kdone
 .do_right:
+    lda #0
+    sta player_dir
     lda $d000
     cmp #255
     bne .inc_right
@@ -457,9 +478,9 @@ e_clamp:
     sta enemy_x
     bne e_cy
 e_xhi:
-    cmp #255
+    cmp #200
     bcc e_cy
-    lda #255
+    lda #200
     sta enemy_x
 
 e_cy:
@@ -616,3 +637,113 @@ sound_tick:
     sta $D404
 st_done:
     rts
+
+
+dmz_colors:  !byte 6, 14, 3, 4, 8, 10, 15, 1
+
+lfsr_tick:
+    lda dmz_seed
+    lsr
+    bcc d_noe
+    eor #$2D
+d_noe:  sta dmz_seed
+    rts
+
+dmz_init:
+    lda #1
+    sta d_ri
+di_row:
+    lda d_ri
+    jsr d_mul40
+    clc
+    lda $FB
+    adc #28
+    sta $FB
+    lda $FC
+    adc #>$D800
+    sta $FC
+    ldy #11
+di_col:
+    jsr lfsr_tick
+    and #$07
+    tax
+    lda dmz_colors, x
+    sta ($FB), y
+    dey
+    bpl di_col
+    inc d_ri
+    lda d_ri
+    cmp #25
+    bne di_row
+    rts
+d_ri: !byte 0
+
+dmz_do:
+    ;; Refresh every 3rd frame so the static shimmers, not strobes.
+    dec dmz_timer
+    bne d_skip
+    lda #3
+    sta dmz_timer
+
+    ;; Write a random colour to all 288 safe-zone cells.
+    ;; Uses LFSR for per-cell randomness — creates TV-static interference.
+    lda #1
+    sta d_ri
+dr_row:
+    lda d_ri
+    jsr d_mul40
+    clc
+    lda $FB
+    adc #28
+    sta $FB
+    lda $FC
+    adc #>$D800
+    sta $FC
+
+    ldy #11
+dr_col:
+    jsr lfsr_tick
+    and #$0F            ; random colour 0-15
+    sta ($FB), y
+    dey
+    bpl dr_col
+
+    inc d_ri
+    lda d_ri
+    cmp #25
+    bne dr_row
+d_skip:
+    rts
+
+d_mul40:
+    sta d_t1
+    asl
+    asl
+    asl
+    sta $FB             ; row * 8
+    lda d_t1
+    sta d_m32
+    lda #0
+    sta d_m32h
+    asl d_m32
+    rol d_m32h
+    asl d_m32
+    rol d_m32h
+    asl d_m32
+    rol d_m32h
+    asl d_m32
+    rol d_m32h
+    asl d_m32
+    rol d_m32h
+    clc
+    lda d_m32
+    adc $FB
+    sta $FB
+    lda d_m32h
+    adc #0
+    sta $FC
+    rts
+d_t1:   !byte 0
+d_m32:  !byte 0
+d_m32h: !byte 0
+d_tmp:  !byte 0

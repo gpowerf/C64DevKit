@@ -7,7 +7,12 @@ sprites:
     color: 7               # yellow
     multicolor: false
     enabled: true
-    data_file: "assets/sprites/player.spr"
+    data_file: "assets/sprites/ship_r.spr"
+    data_files:
+      right: "assets/sprites/ship_r.spr"
+      left:  "assets/sprites/ship_l.spr"
+      up:    "assets/sprites/ship_u.spr"
+      down:  "assets/sprites/ship_d.spr"
 
   - name: enemy
     index: 1
