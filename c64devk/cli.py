@@ -1,9 +1,11 @@
 """CLI entry point for c64devk."""
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from . import VERSION
@@ -224,7 +226,6 @@ def cmd_clean(project_path: str) -> None:
 
 def cmd_setup() -> None:
     """Install and configure all dependencies interactively."""
-    import os
     from .config import get_framework_dir
 
     print("C64DevKit Setup\n")
@@ -333,7 +334,6 @@ def cmd_setup() -> None:
 
 def _install_acme() -> bool:
     """Compile and install ACME to ~/.local/bin. Returns True on success."""
-    import tempfile
 
     local_bin = Path.home() / ".local" / "bin"
     local_bin.mkdir(parents=True, exist_ok=True)
