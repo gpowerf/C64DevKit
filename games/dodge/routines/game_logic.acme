@@ -86,6 +86,11 @@ init_once:
 do_init:
     inc init_done
 
+    ;; Seed LFSR from raster line for varied runs
+    lda $d012
+    eor #$5A
+    sta dmz_seed
+
     ;; Border + zones + screen fill
     lda #11
     sta $d020
@@ -752,15 +757,6 @@ level_update:
     bcc .no_up
     sta prev_k       ; advance threshold
     inc level
-    lda level
-    cmp #3
-    bcc .set2
-    lda #1
-    bne .set_div
-.set2:
-    lda #2
-.set_div:
-    sta speed_div
     ;; Play level-up chirp on voice 3
     lda #$40
     sta $D40E
@@ -783,8 +779,14 @@ level_update:
 ;; Asteroid spawn table: 8 (dx, dy) pairs, dy always negative
 ;; ============================================================
 ast_angles:
-    !byte 255,-3, 255,-2, 0,-3, 1,-3
+    !byte 255,-3, 255,-2, 0,-3, 1,-3    ; bottom → up: dy=-3..-1, dx=-1..1
     !byte 255,-1, 1,-2, 254,-3, 2,-3
+    !byte 1,3,   255,2,  0,3,   1,2     ; top → down: dy=3..1, dx=-1..1
+    !byte 255,1,  1,2,   2,3,   254,2
+    !byte 254,-1, 253,-2, 254,0,  253,1  ; right → left: dx=-3..-1, dy=-1..1
+    !byte 255,0,  254,1,  253,-1, 254,-2
+    !byte 2,-1,   3,-2,  2,0,    3,1    ; left → right: dx=3..1, dy=-1..1
+    !byte 1,0,    2,1,   3,-1,   2,-2
 
 ;; ============================================================
 ;; Asteroid system
@@ -798,9 +800,9 @@ ast_spawn:
 .sk1:
     lda #0
     sta ast_count
+    lda ast_active
     ldx #2
 .cnt_lp:
-    lda ast_active
     lsr
     bcc .cnt_nx
     inc ast_count
@@ -834,23 +836,83 @@ ast_spawn:
     jmp .done
 .sk3:
 
-    ;; Pick random angle from table
+    ;; Shuffle LFSR with raster so each spawn is different
+    jsr lfsr_tick          ; always advance at least once
+    lda $d012
+    and #$0F               ; 0-15 extra ticks
+    tax
+.lshuf:
     jsr lfsr_tick
-    and #$07
-    asl             ; *2 (each entry is 2 bytes)
+    dex
+    bpl .lshuf             ; 1-17 total ticks before angle pick
+
+    ;; Pick random angle from full table (16 entries, 32 bytes)
+    jsr lfsr_tick
+    and #$0F            ; 0-15
+    asl
     tax
     lda ast_angles, x
     sta ast_vy
     lda ast_angles+1, x
     sta ast_vx
 
-    ;; Random X spawn position (24-255)
+    ;; Determine spawn edge from direction
+    ;; Bottom spawn: dy negative (bits 6-7 of dy set = $80-$FF)
+    lda ast_vy
+    bpl .not_bottom      ; positive dy → not bottom
+    ;; Bottom: Y=210, random X
+    lda #210
+    sta ast_tmp          ; reuse as Y position
     jsr lfsr_tick
-    cmp #232
-    bcc .xok
-    sbc #232
-.xok:
-    adc #24
+    and #$7F
+    adc #40
+    sta ast_tmp2
+    jmp .find_lp
+
+.not_bottom:
+    ;; Top spawn: dy positive → Y=50, random X
+    lda ast_vx
+    bmi .not_top         ; dx negative → left or right spawn
+    ;; Check if dy is positive and we're top-spawning
+    lda ast_vy
+    cmp #1
+    bcc .not_top         ; dy=0 → edge spawn, treat as right/left
+    lda #50
+    sta ast_tmp
+    jsr lfsr_tick
+    and #$7F
+    adc #40
+    sta ast_tmp2
+    jmp .find_lp
+
+.not_top:
+    ;; Check dx: negative → right edge, positive → left edge
+    lda ast_vx
+    bpl .left_spawn
+    ;; Right edge: X=255, random Y 50-229
+    lda #255
+    sta ast_tmp2
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .ry_ok
+    lda #229
+.ry_ok:
+    sta ast_tmp
+    jmp .find_lp
+
+.left_spawn:
+    ;; Left edge: X=24, random Y 50-229
+    lda #24
+    sta ast_tmp2
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .ly_ok
+    lda #229
+.ly_ok:
     sta ast_tmp
 
     ;; Find free asteroid slot
@@ -861,14 +923,17 @@ ast_spawn:
     bne .chk1
     and #$01
     beq .found
+    bne .nxt
 .chk1:
     cpx #1
     bne .chk2
     and #$02
     beq .found
+    bne .nxt
 .chk2:
     and #$04
     beq .found
+.nxt:
     inx
     cpx #3
     bne .find_lp
@@ -896,12 +961,12 @@ ast_spawn:
     sta ast_dx, x
     lda ast_vy
     sta ast_dy, x
-    lda ast_tmp
+    lda ast_tmp2          ; X position
     sta ast_x, x
-    lda #210            ; spawn at bottom
+    lda ast_tmp           ; Y position
     sta ast_y, x
-    ;; Write initial VIC register
-    lda ast_tmp
+    ;; Write initial VIC registers
+    lda ast_tmp2
     sta $d004, x
     cpx #0
     bne .w1
@@ -923,11 +988,14 @@ ast_spawn:
 .mb:
     sta ast_msb
     sta ast_msb
+    jsr lfsr_tick       ; shuffle for next spawn
     rts
 
 .done:
+    jsr lfsr_tick       ; shuffle for next spawn
     rts
 ast_tmp: !byte 0
+ast_tmp2: !byte 0
 
 ast_update:
     ;; Re-enable asteroid sprites in $D015 (death handlers clear them)
@@ -948,7 +1016,7 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
-    lda #100            ; respawn: 2 seconds at 50fps
+    lda #30             ; respawn delay
     sta ast_timer
 .spwn_d:
 
@@ -1361,40 +1429,215 @@ chk_set:
 chk_clr:
     lda #0
     sta cheat_spc
-    ;; Force immediate asteroid at level 2+ with random angle
+    ;; Spawn asteroid if below level max
     lda level
     cmp #2
-    bcc chk_rts
+    bcs .notl1
+    jmp chk_rts
+.notl1:
+    ;; Count active and compare with level max
     lda ast_active
-    bne chk_rts
+    ldy #0
+    lsr
+    bcc .ca
+    iny
+.ca:lsr
+    bcc .cb
+    iny
+.cb:lsr
+    bcc .cc
+    iny
+.cc:
+    lda level
+    cmp #3
+    bcs .ck4p
+    cpy #1              ; levels 2-3: max 1
+    bcc .un_a
+    jmp chk_rts
+.un_a:
+    bcc .go
+.ck4p:
+    cmp #5
+    bcs .ck5p
+    cpy #2              ; level 4: max 2
+    bcc .un_b
+    jmp chk_rts
+.un_b:
+    bcc .go
+.ck5p:
+    cpy #3              ; level 5+: max 3
+    bcc .un_c
+    jmp chk_rts
+.un_c
+.go:
+    ;; Find a free asteroid slot
+    ldx #0
+.fnd:
+    lda ast_active
+    cpx #0
+    bne .f1
+    and #$01
+    beq .fnd_ok
+    bne .fnxt
+.f1:
+    cpx #1
+    bne .f2
+    and #$02
+    beq .fnd_ok
+    bne .fnxt
+.f2:
+    and #$04
+    beq .fnd_ok
+.fnxt:
+    inx
+    cpx #3
+    bne .fnd
+    jmp chk_rts          ; all slots full
+
+.fnd_ok:
+    ;; Shuffle with raster for variety
+    lda $d012
+    lsr
+    bcc .ts1
+    jsr lfsr_tick
+.ts1:
+    lsr
+    bcc .ts2
+    jsr lfsr_tick
+.ts2:
     ;; Pick random angle
     jsr lfsr_tick
-    and #$07
+    and #$0F             ; 16 angles in full table
     asl
-    tax
-    lda ast_angles, x
-    sta ast_dy          ; dy for slot 0
-    lda ast_angles+1, x
-    sta ast_dx          ; dx for slot 0
-    ;; Random X
+    asl
+    tay
+    lda ast_angles, y
+    sta ast_dy, x
+    lda ast_angles+1, y
+    sta ast_dx, x
+    ;; Spawn edge from direction
+    lda ast_angles, y     ; dy
+    bpl .tb               ; dy positive → top spawn
+    ;; Bottom spawn
     jsr lfsr_tick
     and #$7F
     adc #40
-    sta ast_x
-    sta $d004
+    sta ast_x, x
     lda #210
-    sta ast_y
+    sta ast_y, x
+    bne .fv_reg
+.tb:
+    lda ast_angles+1, y   ; dx
+    bpl .tl               ; dx positive → left spawn
+    ;; Right spawn
+    lda #255
+    sta ast_x, x
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .tby
+    lda #229
+.tby:
+    sta ast_y, x
+    bne .fv_reg
+.tl:
+    ;; Left spawn (dx positive) or top spawn (dy positive, dx ≈ 0)
+    lda ast_angles, y
+    beq .tle              ; dy=0 → left edge
+    cmp #4
+    bcc .tle              ; dy 1-3 → might be top or left
+    ;; Top spawn
+    jsr lfsr_tick
+    and #$7F
+    adc #40
+    sta ast_x, x
+    lda #50
+    sta ast_y, x
+    bne .fv_reg
+.tle:
+    ;; Left edge
+    lda #24
+    sta ast_x, x
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .tly
+    lda #229
+.tly:
+    sta ast_y, x
+.fv_reg:
+    ;; Fix VIC registers for slot
+    cpx #0
+    bne .fx1
+    lda ast_x
+    sta $d004
+    lda ast_y
     sta $d005
-    ;; Activate
-    lda #1
-    sta ast_active
-    lda ast_msb
-    and #$FE
-    sta ast_msb
-    lda $d015
+    jmp .fact
+.fx1:
+    cpx #1
+    bne .fx2
+    lda ast_x, x
+    sta $d006
+    lda ast_y, x
+    sta $d007
+    jmp .fact
+.fx2:
+    lda ast_x, x
+    sta $d008
+    lda ast_y, x
+    sta $d009
+
+.fact:
+    ;; Set the active bit for this slot
+    lda ast_active
+    cpx #0
+    bne .fa1
+    ora #$01
+    bne .fas
+.fa1:
+    cpx #1
+    bne .fa2
+    ora #$02
+    bne .fas
+.fa2:
     ora #$04
+.fas:
+    sta ast_active
+    ;; Enable sprite in $d015
+    lda $d015
+    cpx #0
+    bne .fd1
+    ora #$04
+    bne .fds
+.fd1:
+    cpx #1
+    bne .fd2
+    ora #$08
+    bne .fds
+.fd2:
+    ora #$10
+.fds:
     sta $d015
-    lda #1             ; quick respawn
+    ;; Clear MSB for this slot
+    lda ast_msb
+    cpx #0
+    bne .fm1
+    and #$FE
+    bne .fms
+.fm1:
+    cpx #1
+    bne .fm2
+    and #$FD
+    bne .fms
+.fm2:
+    and #$FB
+.fms:
+    sta ast_msb
+    ;; Quick respawn timer
+    lda #1
     sta ast_timer
 chk_rts:
     rts
@@ -1403,7 +1646,7 @@ chk_up:
     lda #$10
     sta cheat_spc          ; remember: SPACE not pressed
     rts
-chk_speeds: !byte 2,2,1,1,1    ; speed_div per level
+chk_speeds: !byte 2,2,2,2,2    ; speed_div (always 2 now)
 chk_offs:   !word 0, 1000, 2000, 3000, 4000  ; score values
 
 chk_sid:
