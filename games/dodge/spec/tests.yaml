@@ -1,6 +1,6 @@
 # Test definitions
-# Note: this game is fully hand-coded in routines/game_logic.acme.
-# The behavior DSL path is not used. Static tests verify the build structure.
+# HUD handled by behavior DSL (display_text + display_number).
+# Game logic in routines/game_logic.acme.
 # Runtime assertions require live VICE testing (display needed).
 
 tests:
