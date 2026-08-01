@@ -127,6 +127,10 @@ class Action:
             if isinstance(value, str):
                 return {"text": value}
             return value
+        elif action_type == "display_number":
+            if isinstance(value, str):
+                return {"variable": value}
+            return value
         else:
             return {"value": value}
 

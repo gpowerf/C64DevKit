@@ -330,6 +330,14 @@ def _behaviors_need_text(spec: "ProjectSpec") -> bool:
     return False
 
 
+def _behaviors_need_numbers(spec: "ProjectSpec") -> bool:
+    for b in spec.behaviors:
+        for a in b.actions:
+            if a.type == "display_number":
+                return True
+    return False
+
+
 def _behaviors_sound_voices(spec: "ProjectSpec") -> set[int]:
     voices: set[int] = set()
     for b in spec.behaviors:
@@ -352,6 +360,9 @@ def _emit_behavior_variables(spec: "ProjectSpec", lines: list[str]) -> None:
         lines.append("sound_dur_1:\t!byte 0")
         lines.append("sound_dur_2:\t!byte 0")
         lines.append("sound_dur_3:\t!byte 0")
+    if _behaviors_need_numbers(spec):
+        lines.append("num_tmp:\t!byte 0, 0")
+        lines.append("num_scr:\t!byte 0")
     lines.append("")
 
 
@@ -463,6 +474,7 @@ def _emit_action(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: l
         "play_sound": _emit_action_play_sound,
         "check_collision": _emit_action_inline_collision,
         "display_text": _emit_action_display_text,
+        "display_number": _emit_action_display_number,
     }
     emitter = action_emitters.get(action.type)
     if emitter:
@@ -651,6 +663,59 @@ def _emit_action_display_text(spec: "ProjectSpec", action: "Action", lines: list
     lines.append("")
     lines.append(f"{label}_dat:")
     lines.append(f'\t!scr \"{text}\", 0')
+    lines.append("")
+
+
+def _emit_action_display_number(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: list[int]) -> None:
+    """Emit live decimal number display using shared temp variables."""
+    var = str(action.params.get("variable", "score"))
+    row = int(action.params.get("row", 0))
+    col = int(action.params.get("col", 0))
+    digits = int(action.params.get("digits", 5))
+    color = int(action.params.get("color", 0))
+    size = int(action.params.get("size", 2))
+
+    screen_addr = spec.screen.screen_ram + row * 40 + col
+    color_addr = 0xD800 + row * 40 + col
+    label = _next_beh_label(cnt, "num")
+
+    lines.append(f"\t;; display_number: {var} at row {row}, col {col} ({digits} digits)")
+    lines.append(f"\tlda {var}")
+    lines.append(f"\tsta num_tmp")
+    if size == 2:
+        lines.append(f"\tlda {var}+1")
+    else:
+        lines.append(f"\tlda #0")
+    lines.append(f"\tsta num_tmp+1")
+
+    s = 1
+    for d in range(digits):
+        place = s
+        for _ in range(digits - d - 1):
+            place *= 10
+        lines.append(f"\tldy #0")
+        lines.append(f"{label}_lp{d}:")
+        lines.append(f"\tsec")
+        lines.append(f"\tlda num_tmp")
+        lines.append(f"\tsbc #<{place}")
+        lines.append(f"\tsta num_scr")
+        lines.append(f"\tlda num_tmp+1")
+        lines.append(f"\tsbc #>{place}")
+        lines.append(f"\tbcc {label}_dn{d}")
+        lines.append(f"\tsta num_tmp+1")
+        lines.append(f"\tlda num_scr")
+        lines.append(f"\tsta num_tmp")
+        lines.append(f"\tiny")
+        lines.append(f"\tjmp {label}_lp{d}")
+        lines.append(f"{label}_dn{d}:")
+        lines.append(f"\ttya")
+        lines.append(f"\tclc")
+        lines.append(f"\tadc #$30")
+        lines.append(f"\tsta ${screen_addr + d:04X}")
+        if color:
+            lines.append(f"\tlda #{color}")
+            lines.append(f"\tsta ${color_addr + d:04X}")
+
     lines.append("")
 
 
