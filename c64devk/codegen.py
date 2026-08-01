@@ -650,6 +650,10 @@ def _emit_action_display_text(spec: "ProjectSpec", action: "Action", lines: list
     color_addr = 0xD800 + row * 40 + col
     label = _next_beh_label(cnt, "txt")
     lines.append(f"\t;; display_text: \"{text}\" at row {row}, col {col}")
+    lines.append(f"\tjmp {label}_go")
+    lines.append(f"{label}_dat:")
+    lines.append(f'\t!scr \"{text}\", 0')
+    lines.append(f"{label}_go:")
     lines.append(f"\tldx #0")
     lines.append(f"{label}_lp:")
     lines.append(f"\tlda {label}_dat, x")
@@ -661,9 +665,6 @@ def _emit_action_display_text(spec: "ProjectSpec", action: "Action", lines: list
     lines.append(f"\tinx")
     lines.append(f"\tbne {label}_lp")
     lines.append(f"{label}_dn:")
-    lines.append("")
-    lines.append(f"{label}_dat:")
-    lines.append(f'\t!scr \"{text}\", 0')
     lines.append("")
 
 
