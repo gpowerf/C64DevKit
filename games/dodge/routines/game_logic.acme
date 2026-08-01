@@ -14,11 +14,12 @@ enemy_y:    !byte 80
 enemy_init: !byte 0
 hit_timer:  !byte 0
 snd_timer:  !byte 0
-state:      !byte 0
+state:      !byte 3    ; 0=playing 1=dying 2=gameover 3=splash
 state_tmr:  !byte 0
 score_tmr:  !byte 0
 flash_tmr:  !byte 0
 init_done:  !byte 0
+splash_done: !byte 0
 go_drawn:   !byte 0
 speed_ctr:  !byte 0
 last_safe:  !byte 0
@@ -48,10 +49,17 @@ cheat_spc:  !byte $FF  ; previous SPACE state (edged)
 GAME_PLAYING = 0
 GAME_DYING   = 1
 GAME_OVER    = 2
+GAME_SPLASH  = 3
 SCRN = $0400
 
 gstart:
     jsr init_once
+    jsr dmz_do
+    lda state
+    cmp #GAME_SPLASH
+    bne g0
+    jmp do_splash
+g0:
     jsr keyboard_read
     jsr cheat_keys
     ;; Set sprite 0 pointer ($07F8) = $80 + player_dir
@@ -59,7 +67,6 @@ gstart:
     clc
     adc #$80
     sta $07F8
-    jsr dmz_do
     jsr level_update
     jsr ast_update
     lda state
@@ -1676,6 +1683,155 @@ chk_sid:
     lda #10
     sta snd_timer
     rts
+
+;; -- Rock sprite data (asteroid) --
+;; ============================================================
+do_splash:
+    lda splash_done
+    bne .ds_wait
+    inc splash_done
+    jsr draw_splash
+.ds_wait:
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10             ; SPACE to start
+    bne .ds_rts
+    lda #$03             ; enable sprites 0+1
+    sta $d015
+    lda #GAME_PLAYING
+    sta state
+.ds_rts:
+    rts
+
+draw_splash:
+    ;; Fill screen with space ($20) and black background
+    ldx #0
+    lda #$20
+.ds_clr:
+    sta $0400, x
+    sta $0500, x
+    sta $0600, x
+    sta $06e8, x
+    lda #0
+    sta $d800, x
+    sta $d900, x
+    sta $da00, x
+    sta $dae8, x
+    lda #$20
+    inx
+    bne .ds_clr
+
+    ;; Cyan bar at row 9
+    ldx #0
+    lda #3
+.ds_tbar:
+    sta $d800+9*40, x
+    inx
+    cpx #40
+    bne .ds_tbar
+
+    ;; Cyan bar at row 16
+    ldx #0
+.ds_bbar:
+    sta $d800+16*40, x
+    inx
+    cpx #40
+    bne .ds_bbar
+
+    ;; Title "LAST STAR SYSTEM" centered at row 10, col 12
+    ldx #0
+.ds_txt:
+    lda ds_title, x
+    beq .ds_t2
+    sta $0400+10*40+12, x
+    lda #1
+    sta $d800+10*40+12, x
+    inx
+    bne .ds_txt
+.ds_t2:
+
+    ;; Subtitle "PRESS SPACE TO PLAY" at row 14, col 11
+    ldx #0
+.ds_sub:
+    lda ds_press, x
+    beq .ds_s3
+    sta $0400+14*40+11, x
+    lda #15
+    sta $d800+14*40+11, x
+    inx
+    bne .ds_sub
+.ds_s3:
+
+    ;; Decorative stars in rows 2-8 and 17-22
+    ldx #24
+.ds_star:
+    jsr lfsr_tick
+    and #$3F
+    clc
+    adc #$40
+    sta .ds_ch
+    jsr lfsr_tick
+    and #$1F
+    cmp #2
+    bcc .ds_star          ; skip rows 0-1
+    cmp #9
+    bcc .ds_rok            ; rows 2-8 OK
+    cmp #17
+    bcc .ds_star          ; skip rows 9-16 (title area)
+    cmp #23
+    bcc .ds_rok            ; rows 17-22 OK
+    bcs .ds_star           ; skip rows 23-24
+.ds_rok:
+    tay
+    jsr lfsr_tick
+    and #$3F
+    cmp #40
+    bcs .ds_star
+    sty .ds_rv
+    sta .ds_cv
+    lda .ds_rv
+    asl
+    asl
+    asl
+    sta $FB
+    lda .ds_rv
+    asl
+    asl
+    asl
+    asl
+    asl
+    clc
+    adc $FB
+    adc .ds_cv
+    sta $FB
+    lda #>$0400
+    adc #0
+    sta $FC
+    lda .ds_ch
+    ldy #0
+    sta ($FB), y
+    clc
+    lda $FB
+    adc #<$D400
+    sta $FD
+    lda $FC
+    adc #>$D400
+    sta $FE
+    jsr lfsr_tick
+    and #$07
+    tay
+    lda dmz_colors, y
+    ldy #0
+    sta ($FD), y
+    dex
+    bpl .ds_star
+.ds_ch: !byte 0
+.ds_rv: !byte 0
+.ds_cv: !byte 0
+
+ds_title:  !scr "last star system", 0
+ds_press:  !scr "press space to play", 0
 
 * = $2140
     !bin "assets/sprites/rock.spr"

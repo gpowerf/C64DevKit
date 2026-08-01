@@ -2,7 +2,7 @@
 
 ## Controls
 - **WASD** — move player
-- **SPACE** — restart after game over (at game over screen only)
+- **SPACE** — start game (splash screen) / restart (game over)
 - **SPACE** (debug) — cycle levels 1→2→3→4→5→1 (compile-time flag `CHEAT_KEYS`)
 
 ## Visual zones
@@ -132,13 +132,24 @@ $3800–$3FFF : copied ROM charset (2 KB)
 
 ## State machine
 ```
-PLAYING (0) → keyboard, enemy AI, scoring, collision
-                ↓ collision
-DYING (1)    → player flashes, 150‑frame timer
-                ↓ lives > 0     ↓ lives = 0
-              PLAYING (0)    GAME_OVER (2)
+SPLASH (3)   → "LAST STAR SYSTEM" + cyan bars + stars + DMZ
+                 ↓ SPACE
+PLAYING (0)  → keyboard, enemy AI, scoring, collision
+                 ↓ collision
+DYING (1)     → player flashes, 150‑frame timer
+                 ↓ lives > 0     ↓ lives = 0
+               PLAYING (0)    GAME_OVER (2)
 GAME_OVER (2) → show text, wait for SPACE → restart → PLAYING (0)
 ```
+
+## Splash screen
+- Black background with LFSR-placed decorative stars in upper/lower thirds.
+- Cyan bars on rows 9 and 16 frame the title/subtitle area.
+- Title "LAST STAR SYSTEM" in white at row 10, centered.
+- Subtitle "PRESS SPACE TO PLAY" in light grey at row 14, centered.
+- DMZ noise animates on the right side behind the text.
+- Player ship visible, stationary (no keyboard during splash).
+- SPACE transitions to PLAYING; restart skips splash.
 
 ## Sound
 - Death: voice 1 sawtooth, 5000 Hz, instant ADSR, 20 frames.
