@@ -186,6 +186,8 @@ clr_col:
 ;; PLAYING state
 ;; ============================================================
 do_play:
+    lda #0
+    sta c_saved          ; clear stale collision from previous frame
     jsr enemy_do
     jsr score_do
     jsr collision_do
@@ -1136,6 +1138,11 @@ ast_update:
     rts
 
 ast_collision:
+    ;; Don't double-fire if enemy collision already triggered
+    lda state
+    cmp #GAME_PLAYING
+    bne .ac_done
+
     ;; DMZ protection: player X >= 224
     lda $d010
     and #$01
@@ -1281,6 +1288,10 @@ lfsr_tick:
     bcc d_noe
     eor #$2D
 d_noe:  sta dmz_seed
+    bne d_done          ; never let seed be 0 (terminal state)
+    lda #$5A
+    sta dmz_seed
+d_done:
     rts
 
 dmz_init:
