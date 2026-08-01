@@ -1,10 +1,10 @@
-# Sprite Dodge — game logic
-#
-# This game uses hand-written 6502 assembly for all logic.
-# The behavior DSL is bypassed; everything lives in:
-#   routines/game_logic.acme
-#
-# See that file for: keyboard input, enemy AI, collision detection,
-# state machine, screen text, scoring, sound, and restart logic.
+# Sprite Dodge — HUD and scoring via behavior DSL
 
-behaviors: []
+behaviors:
+  - name: hud
+    type: on_frame
+    actions:
+      - display_text: {text: "SCORE:", row: 0, col: 0, color: 1}
+      - display_number: {variable: score, row: 0, col: 6, digits: 5, color: 1}
+      - display_text: {text: "LIVES:", row: 0, col: 12, color: 1}
+      - display_number: {variable: lives, row: 0, col: 18, digits: 1, color: 1, size: 1}

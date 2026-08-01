@@ -48,11 +48,21 @@ Three vertical stripes via color RAM on solid block characters:
 - Bounds: X 24-320, Y 50-229
 - Direct VIC-II register writes from keyboard reader
 
-## Screen
-- VIC bank 0: screen at $0400, charset at $3800
-- ROM charset ($D000) copied to $3800 at startup (char ROM visible via $01=$33)
-- Solid block characters ($A0) fill screen for color RAM visibility
-- 40×25 character display
+## HUD display
+Handled by the behavior DSL (`spec/behaviors.yaml`):
+```yaml
+behaviors:
+  - name: hud
+    type: on_frame
+    actions:
+      - display_text: {text: "SCORE:", row: 0, col: 0, color: 1}
+      - display_number: {variable: score, row: 0, col: 6, digits: 5, color: 1}
+      - display_text: {text: "LIVES:", row: 0, col: 12, color: 1}
+      - display_number: {variable: lives, row: 0, col: 18, digits: 1, color: 1, size: 1}
+```
+The score and lives values update live every frame via `display_number`.
+No custom assembly needed for the HUD — the framework emits the decimal
+conversion and screen RAM writes.
 
 ## Memory layout
 ```
@@ -81,5 +91,5 @@ GAME_OVER (2) → show text, wait for SPACE → restart → PLAYING (0)
 - `c64devk.yaml` — project config (memory, screen, sprites setup)
 - `spec/sprites.yaml` — sprite definitions (player + enemy)
 - `spec/game.yaml` — screen mode + colors (documentary)
-- `spec/behaviors.yaml` — empty (all logic hand-coded)
+- `spec/behaviors.yaml` — HUD display (display_text + display_number actions)
 - `routines/game_logic.acme` — full game implementation (~760 lines)

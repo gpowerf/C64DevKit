@@ -1,5 +1,6 @@
-;; game_logic.acme — Survival Dodge: full game
-;; State machine, screen text, lives, score, game over, restart.
+;; game_logic.acme — Sprite Dodge: full game logic
+;; HUD text/numbers handled by behavior DSL (see behaviors.yaml).
+;; This file: keyboard, enemy AI, collision, state machine, sound.
 
     jmp gstart
 
@@ -11,15 +12,14 @@ enemy_y:    !byte 80
 enemy_init: !byte 0
 hit_timer:  !byte 0
 snd_timer:  !byte 0
-state:      !byte 0          ; 0=PLAYING, 1=DYING, 2=GAME_OVER
+state:      !byte 0
 state_tmr:  !byte 0
 score_tmr:  !byte 0
 flash_tmr:  !byte 0
 init_done:  !byte 0
 go_drawn:   !byte 0
-digits:     !byte 0, 0, 0, 0, 0
 speed_ctr:  !byte 0
-last_safe:  !byte 0          ; previous frame safe-zone flag
+last_safe:  !byte 0
 
 GAME_PLAYING = 0
 GAME_DYING   = 1
@@ -45,45 +45,19 @@ gdone:
     rts
 
 ;; ============================================================
-;; First-frame init — copy charset, clear screen
-;; ============================================================
 init_once:
     lda init_done
     beq do_init
-    rts                      ; already done — return immediately
+    rts
 
 do_init:
     inc init_done
 
-    ;; Copy ROM charset ($D000) to RAM ($3800) for VIC bank 0
-    sei                          ; no IRQs during copy
-    lda #$33                     ; CHAREN=0: character ROM visible
-    sta $01
-    ldx #0
-copylp:
-    lda $d000, x
-    sta $3800, x
-    lda $d100, x
-    sta $3900, x
-    lda $d200, x
-    sta $3a00, x
-    lda $d300, x
-    sta $3b00, x
-    lda $d400, x
-    sta $3c00, x
-    lda $d500, x
-    sta $3d00, x
-    lda $d600, x
-    sta $3e00, x
-    lda $d700, x
-    sta $3f00, x
-    inx
-    bne copylp
-    lda #$37                     ; restore: all ROMs + I/O
-    sta $01
-    cli
+    ;; Border + zones + screen fill
+    lda #11
+    sta $d020
 
-    ;; Clear screen to solid blocks (shows color RAM zones)
+    ;; Fill screen with solid blocks (shows color RAM zones)
     ldx #0
     lda #$a0
 clr_scr:
@@ -94,20 +68,12 @@ clr_scr:
     inx
     bne clr_scr
 
-    ;; Visible border (dark gray)
-    lda #11
-    sta $d020
-
-    ;; Set background color to black
-    lda #0
-    sta $d021
-
-    ;; Set 3 zones in color RAM: green (left), black (mid), blue (right)
+    ;; 3 zone colors in color RAM
     lda #<$d800
     sta $02
     lda #>$d800
     sta $03
-    ldx #25                 ; 25 rows
+    ldx #25
 z_row:
     ldy #0
     lda #5                  ; green — score zone
@@ -116,22 +82,18 @@ z_grn:
     iny
     cpy #13
     bne z_grn
-
-    lda #0                  ; black — neutral zone
+    lda #0                  ; black — neutral
 z_blk:
     sta ($02), y
     iny
     cpy #28
     bne z_blk
-
-    lda #6                  ; blue — safe zone
+    lda #6                  ; blue — safe
 z_blu:
     sta ($02), y
     iny
     cpy #40
     bne z_blu
-
-    ;; next row
     lda $02
     clc
     adc #40
@@ -142,7 +104,7 @@ z_nh:
     dex
     bne z_row
 
-    ;; Top line header in white
+    ;; Top line header in white (overrides zone colors on row 0)
     ldx #0
     lda #1
 clr_col:
@@ -150,9 +112,6 @@ clr_col:
     inx
     cpx #40
     bne clr_col
-
-    ;; Draw score + lives header
-    jsr draw_headers
 
     ;; Init enemy position on VIC-II registers
     lda enemy_x
@@ -162,23 +121,7 @@ clr_col:
     lda $d010
     and #$FD
     sta $d010
-
-i_done:
     rts
-
-;; ============================================================
-draw_headers:
-    ldx #0
-hdr_loop:
-    lda score_hdr, x
-    beq hdr_done
-    sta SCRN, x
-    inx
-    bne hdr_loop
-hdr_done:
-    rts
-
-score_hdr: !scr "score:00000  lives:3", 0
 
 ;; ============================================================
 ;; PLAYING state
@@ -187,7 +130,6 @@ do_play:
     jsr enemy_do
     jsr score_do
     jsr collision_do
-    jsr update_display
     rts
 
 ;; ============================================================
@@ -211,7 +153,7 @@ die_count:
     bne dd_rts
     lda lives
     beq die_gameover
-    ;; Respawn — restore visibility, invincibility
+    ;; Respawn
     lda enemy_x
     sta $d002
     lda enemy_y
@@ -276,16 +218,17 @@ ov_done:
     rts
 
 draw_gameover:
-    ;; Set color rows 12-13 to white for readable text
+    ;; Set color rows 12-13 to white
     ldx #0
-    lda #1                  ; white
+    lda #1
 go_col:
-    sta $d9e0, x            ; row 12
-    sta $da08, x            ; row 13
+    sta $d9e0, x
+    sta $da08, x
     inx
     cpx #40
     bne go_col
 
+    ;; Clear text area
     ldx #0
     lda #$20
 go_clr:
@@ -327,21 +270,19 @@ restart:
     sta state_tmr
     sta snd_timer
     sta speed_ctr
-     sta go_drawn
-     sta last_safe
-     lda #10
-    sta hit_timer           ; brief invincibility on restart
+    sta go_drawn
+    sta last_safe
+    lda #10
+    sta hit_timer
 
-    ;; Reset player to center
     lda #160
     sta $d000
     lda #120
     sta $d001
     lda $d010
-    and #$FE                ; clear MSB for sprite 0
+    and #$FE
     sta $d010
 
-    ;; Reset enemy
     lda #100
     sta enemy_x
     sta $d002
@@ -351,21 +292,10 @@ restart:
     lda $d010
     and #$FD
     sta $d010
-
-    ;; Ensure both sprites visible
     lda #$03
     sta $d015
 
-    ldx #0
-    lda #$a0
-rest_clr:
-    sta SCRN+$1E0, x
-    sta SCRN+$208, x
-    inx
-    cpx #40
-     bne rest_clr
-
-    ;; Restore zone colors on game-over rows (were set to white)
+    ;; Restore zone colors on game-over rows
     ldy #0
 r_green:
     lda #5
@@ -389,18 +319,24 @@ r_blue:
     cpy #40
     bne r_blue
 
-    jsr draw_headers
-    jsr update_display
+    ;; Clear game over text from screen (solid blocks for zone visibility)
+    ldx #0
+    lda #$a0
+rest_clr:
+    sta SCRN+$1E0, x
+    sta SCRN+$208, x
+    inx
+    cpx #40
+    bne rest_clr
     rts
 
 ;; ============================================================
-;; Keyboard — WASD, directly moves player with 9-bit X bounds
+;; Keyboard — WASD, 9-bit X positioning with bounds
 ;; ============================================================
 keyboard_read:
     lda #0
     sta joystick_state
 
-    ;; W (up) — column 1 ($FD), row 1 ($02)
     lda #$fd
     sta $dc00
     lda $dc01
@@ -412,7 +348,6 @@ keyboard_read:
     beq k1
     dec $d001
 k1:
-    ;; S (down) — column 1 ($FD), row 5 ($20)
     lda #$fd
     sta $dc00
     lda $dc01
@@ -423,53 +358,45 @@ k1:
     bcs k2
     inc $d001
 k2:
-    ;; A (left) — column 1 ($FD), row 2 ($04)
     lda #$fd
     sta $dc00
     lda $dc01
     and #$04
     bne k3
-    ;; 9-bit left: check bounds and MSB
     lda $d000
     cmp #24
     bne .do_left
     lda $d010
     and #$01
-    beq k3               ; at X=24 with MSB=0, stop
-    ;; at X=280 (24 + 256*1), can still go left
+    beq k3
 .do_left:
     lda $d000
-    bne .dec_left        ; X > 0 simple decrement
-    ;; X low = 0, check if MSB set (X >= 256)
+    bne .dec_left
     lda $d010
     and #$01
-    beq k3               ; X=0, stop
-    ;; X >= 256 with low=0, dec wraps to 255, clear MSB
+    beq k3
     dec $d010
-    dec $d000             ; 0 → 255
+    dec $d000
     jmp k3
 .dec_left:
     dec $d000
 k3:
-    ;; D (right) — column 2 ($FB), row 2 ($04)
     lda #$fb
     sta $dc00
     lda $dc01
     and #$04
     bne kdone
-    ;; 9-bit right with bound X=320
     lda $d000
-    cmp #64                ; 320 - 256 = 64
-    bcc .do_right          ; low < 64, safe to inc
+    cmp #64
+    bcc .do_right
     lda $d010
     and #$01
-    bne kdone              ; X >= 320 (low>=64 and MSB=1), stop
+    bne kdone
 .do_right:
     lda $d000
     cmp #255
-    bne .inc_right         ; won't wrap
-    ;; wrap from 255: inc low (255→0), set MSB
-    inc $d000              ; becomes 0
+    bne .inc_right
+    inc $d000
     lda $d010
     ora #$01
     sta $d010
@@ -554,26 +481,23 @@ e_wr:
     lda enemy_y
     sta $d003
     lda $d010
-    and #$FD                ; clear MSB for sprite 1 (enemy)
+    and #$FD
     sta $d010
 e_done:
     rts
 
 ;; ============================================================
-;; Score — +1 every 10 frames
+;; Score tick
 ;; ============================================================
 score_do:
-    ;; Safe zone entry penalty (once per visit)
     lda $d010
     and #$01
     beq .not_safe
 
-    ;; In safe zone (blue)
     lda last_safe
-    bne s_done               ; already safe, skip all scoring
+    bne s_done
     lda #1
     sta last_safe
-    ;; Just entered: -5 points, floor 0
     sec
     lda score
     sbc #5
@@ -590,7 +514,6 @@ score_do:
     lda #0
     sta last_safe
 
-    ;; Score tick
     inc score_tmr
     lda score_tmr
     cmp #20
@@ -598,7 +521,6 @@ score_do:
     lda #0
     sta score_tmr
 
-    ;; Green zone (X < 128): +2, black zone: 0
     lda $d000
     cmp #128
     bcs s_done
@@ -631,32 +553,30 @@ c_check:
 
     dec lives
 
-    ;; Move enemy to opposite side of player
-    lda $d000               ; player X low
+    lda $d000
     cmp #128
     bcc .spawn_right
-    lda #50                 ; spawn left
+    lda #50
     jmp .spawn_x
 .spawn_right:
-    lda #200                ; spawn right
+    lda #200
 .spawn_x:
     sta enemy_x
     sta $d002
     lda $d010
-    and #$FD                ; clear MSB for sprite 1
+    and #$FD
     sta $d010
-    lda $d001               ; player Y
+    lda $d001
     cmp #140
     bcc .spawn_bottom
-    lda #60                 ; spawn top
+    lda #60
     jmp .spawn_y
 .spawn_bottom:
-    lda #210                ; spawn bottom
+    lda #210
 .spawn_y:
     sta enemy_y
     sta $d003
 
-    ;; Hit sound
     lda #<5000
     sta $D400
     lda #>5000
@@ -684,71 +604,6 @@ c_no:
     rts
 
 ;; ============================================================
-;; Screen display update
-;; ============================================================
-update_display:
-    jsr conv_score
-
-    ldx #0
-ud_loop:
-    lda digits, x
-    sta SCRN+6, x
-    inx
-    cpx #5
-    bne ud_loop
-
-    lda lives
-    clc
-    adc #$30
-    sta SCRN+19
-    rts
-
-;; ============================================================
-;; 16-bit → 5 decimal digits
-;; ============================================================
-conv_score:
-    lda score
-    sta tmp
-    lda score+1
-    sta tmp+1
-
-    lda #0
-    ldx #4
-zero_d:
-    sta digits, x
-    dex
-    bpl zero_d
-
-    ldx #0
-digit_lp:
-    ldy #0
-sub_lp:
-    sec
-    lda tmp
-    sbc pow_lo, x
-    sta scratch
-    lda tmp+1
-    sbc pow_hi, x
-    bcc next_d
-    sta tmp+1
-    lda scratch
-    sta tmp
-    iny
-    jmp sub_lp
-next_d:
-    tya
-    clc
-    adc #$30
-    sta digits, x
-    inx
-    cpx #5
-    bne digit_lp
-    rts
-
-pow_lo: !byte <10000, <1000, <100, <10, <1
-pow_hi: !byte >10000, >1000, >100, >10, >1
-
-;; ============================================================
 ;; Sound tick
 ;; ============================================================
 sound_tick:
@@ -761,10 +616,3 @@ sound_tick:
     sta $D404
 st_done:
     rts
-
-;; ============================================================
-;; Scratch variables
-;; ============================================================
-tmp:     !byte 0
-tmp2:    !byte 0
-scratch: !byte 0
