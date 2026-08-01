@@ -9,4 +9,4 @@ border_color: 11           # dark gray
 #   green (cols  0-12): score zone
 #   black (cols 13-27): neutral zone
 #   dmz  (cols 28-39):  safe zone — Yars' Revenge style digital noise
-#                        (animated random characters + cycling colours)
+#                        (LFSR random colour static, full-zone refresh)

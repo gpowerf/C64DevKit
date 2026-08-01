@@ -2,6 +2,8 @@
 ;; HUD text/numbers handled by behavior DSL (see behaviors.yaml).
 ;; This file: keyboard, enemy AI, collision, state machine, sound.
 
+CHEAT_KEYS = 1        ; 1=enabled (debug), 0=disabled (release)
+
     jmp gstart
 
 ;; --- Variables ---
@@ -27,6 +29,22 @@ dmz_timer:  !byte 1    ; countdown to next DMZ refresh
 dmz_col:    !byte 0
 dmz_row:    !byte 1
 
+level:      !byte 1    ; difficulty level (1-5+)
+prev_k:     !byte 0    ; previous score/1000 threshold
+speed_div:  !byte 2    ; enemy speed divisor
+ast_timer:  !byte 30   ; countdown to next asteroid spawn
+ast_active: !byte 0    ; bits 0-2: which asteroids are active
+ast_msb:    !byte 0    ; $D010 MSB bits for X >= 256
+ast_x:      !byte 24, 24, 24
+ast_y:      !byte 250, 250, 250
+ast_dx:     !byte 0, 0, 0
+ast_dy:     !byte 0, 0, 0
+ast_count:  !byte 0
+ast_vx:     !byte 0    ; temp during spawn
+ast_vy:     !byte 0
+c_saved:    !byte 0    ; saved $D01E for multi-check
+cheat_spc:  !byte $FF  ; previous SPACE state (edged)
+
 GAME_PLAYING = 0
 GAME_DYING   = 1
 GAME_OVER    = 2
@@ -35,12 +53,15 @@ SCRN = $0400
 gstart:
     jsr init_once
     jsr keyboard_read
+    jsr cheat_keys
     ;; Set sprite 0 pointer ($07F8) = $80 + player_dir
     lda player_dir
     clc
     adc #$80
     sta $07F8
     jsr dmz_do
+    jsr level_update
+    jsr ast_update
     lda state
     cmp #GAME_PLAYING
     bne g1
@@ -134,6 +155,26 @@ clr_col:
     and #$FD
     sta $d010
     jsr dmz_init
+    ;; Init asteroid sprites (2-4) — all point to rock at $2140 (block $85)
+    lda #$85
+    sta $07FA
+    sta $07FB
+    sta $07FC
+    lda #7              ; yellow
+    sta $d029
+    lda #8              ; orange
+    sta $d02a
+    lda #10             ; light red
+    sta $d02b
+    ;; Place asteroids off-screen
+    lda #0
+    sta $d004
+    sta $d006
+    sta $d008
+    lda #250
+    sta $d005
+    sta $d007
+    sta $d009
     rts
 
 ;; ============================================================
@@ -143,6 +184,7 @@ do_play:
     jsr enemy_do
     jsr score_do
     jsr collision_do
+    jsr ast_collision
     rts
 
 ;; ============================================================
@@ -305,8 +347,29 @@ restart:
     lda $d010
     and #$FD
     sta $d010
-    lda #$03
+    lda #$07
     sta $d015
+
+    ;; Reset level + asteroids
+    lda #1
+    sta level
+    lda #0
+    sta prev_k
+    lda #2
+    sta speed_div
+    lda #30
+    sta ast_timer
+    lda #0
+    sta ast_active
+    sta ast_msb
+    lda #0
+    sta $d004
+    sta $d006
+    sta $d008
+    lda #250
+    sta $d005
+    sta $d007
+    sta $d009
 
     ;; Restore zone colors on game-over rows
     ldy #0
@@ -446,7 +509,7 @@ enemy_do:
 e_active:
     inc speed_ctr
     lda speed_ctr
-    cmp #2
+    cmp speed_div
     bcc e_done
     lda #0
     sta speed_ctr
@@ -478,9 +541,9 @@ e_clamp:
     sta enemy_x
     bne e_cy
 e_xhi:
-    cmp #200
+    cmp #224
     bcc e_cy
-    lda #200
+    lda #224
     sta enemy_x
 
 e_cy:
@@ -566,11 +629,50 @@ collision_do:
     rts
 
 c_check:
-    lda $d01e
-    and #$03
-    beq c_no
+    ;; DMZ protection: player X >= 224 (visual safe zone start)
+    lda $d010
+    and #$01             ; MSB set → X >= 256
+    beq .c_nom
+    jmp c_no
+.c_nom:
+    lda $d000
+    cmp #224
+    bcc .c_nodm
+    jmp c_no
+.c_nodm:
 
-    sta $d01e
+    lda $d01e
+    sta c_saved        ; save — VIC clears on read
+    and #$02            ; sprite 0 vs sprite 1 (enemy)
+    bne .c_chk2
+    jmp c_no
+.c_chk2:
+
+    ;; Distance gate: only accept collision if sprites are actually
+    ;; close enough.  Hardware $D01E fires on any pixel overlap,
+    ;; even edge-to-edge with a gap between the visible shapes.
+    lda $d000           ; player X
+    sec
+    sbc $d002           ; subtract enemy X
+    bcs .dx_ok
+    eor #$FF            ; absolute value
+    adc #1
+.dx_ok:
+    cmp #18              ; must be within 18 pixels
+    bcs c_no
+
+    lda $d001           ; player Y
+    sec
+    sbc $d003           ; subtract enemy Y
+    bcs .dy_ok
+    eor #$FF
+    adc #1
+.dy_ok:
+    cmp #18              ; must be within 18 pixels
+    bcs c_no
+
+    lda c_saved
+    sta $d01e           ; write back to clear
 
     dec lives
 
@@ -636,6 +738,470 @@ sound_tick:
     and #$FE
     sta $D404
 st_done:
+    rts
+
+;; ============================================================
+;; Level system
+;; ============================================================
+level_update:
+    lda score+1
+    beq .no_up
+    lda score+1
+    cmp prev_k
+    beq .no_up
+    bcc .no_up
+    sta prev_k       ; advance threshold
+    inc level
+    lda level
+    cmp #3
+    bcc .set2
+    lda #1
+    bne .set_div
+.set2:
+    lda #2
+.set_div:
+    sta speed_div
+    ;; Play level-up chirp on voice 3
+    lda #$40
+    sta $D40E
+    lda #$1F
+    sta $D40F
+    lda #$29
+    sta $D412
+    lda #$00
+    sta $D413
+    lda #$11
+    sta $D414
+    lda #$0F
+    sta $D418
+    lda #15
+    sta snd_timer
+.no_up:
+    rts
+
+;; ============================================================
+;; Asteroid spawn table: 8 (dx, dy) pairs, dy always negative
+;; ============================================================
+ast_angles:
+    !byte 255,-3, 255,-2, 0,-3, 1,-3
+    !byte 255,-1, 1,-2, 254,-3, 2,-3
+
+;; ============================================================
+;; Asteroid system
+;; ============================================================
+ast_spawn:
+    ;; Don't spawn if max asteroids already active
+    lda level
+    cmp #2
+    bcs .sk1
+    jmp .done
+.sk1:
+    lda #0
+    sta ast_count
+    ldx #2
+.cnt_lp:
+    lda ast_active
+    lsr
+    bcc .cnt_nx
+    inc ast_count
+.cnt_nx:
+    dex
+    bpl .cnt_lp
+    
+    lda level
+    cmp #2
+    bne .chk3
+    lda #1
+    bne .cmp_ct
+.chk3:
+    cmp #3
+    bne .chk4
+    lda #1
+    bne .cmp_ct
+.chk4:
+    cmp #4
+    bne .chk5
+    lda #2
+    bne .cmp_ct
+.chk5:
+    lda #3
+.cmp_ct:
+    cmp ast_count
+    bne .sk2
+    jmp .done
+.sk2:
+    bcs .sk3
+    jmp .done
+.sk3:
+
+    ;; Pick random angle from table
+    jsr lfsr_tick
+    and #$07
+    asl             ; *2 (each entry is 2 bytes)
+    tax
+    lda ast_angles, x
+    sta ast_vy
+    lda ast_angles+1, x
+    sta ast_vx
+
+    ;; Random X spawn position (24-255)
+    jsr lfsr_tick
+    cmp #232
+    bcc .xok
+    sbc #232
+.xok:
+    adc #24
+    sta ast_tmp
+
+    ;; Find free asteroid slot
+    ldx #0
+.find_lp:
+    lda ast_active
+    cpx #0
+    bne .chk1
+    and #$01
+    beq .found
+.chk1:
+    cpx #1
+    bne .chk2
+    and #$02
+    beq .found
+.chk2:
+    and #$04
+    beq .found
+    inx
+    cpx #3
+    bne .find_lp
+    rts
+
+.found:
+    ;; Activate this slot
+    lda ast_active
+    cpx #0
+    bne .s1
+    ora #$01
+    bne .sav
+.s1:
+    cpx #1
+    bne .s2
+    ora #$02
+    bne .sav
+.s2:
+    ora #$04
+.sav:
+    sta ast_active
+
+    ;; Store position + velocity
+    lda ast_vx
+    sta ast_dx, x
+    lda ast_vy
+    sta ast_dy, x
+    lda ast_tmp
+    sta ast_x, x
+    lda #210            ; spawn at bottom
+    sta ast_y, x
+    ;; Write initial VIC register
+    lda ast_tmp
+    sta $d004, x
+    cpx #0
+    bne .w1
+    sta $d004
+.w1:
+    ;; Clear MSB for this asteroid
+    lda ast_msb
+    cpx #0
+    bne .m1
+    and #$FE
+    bpl .mb
+.m1:
+    cpx #1
+    bne .m2
+    and #$FD
+    bpl .mb
+.m2:
+    and #$FB
+.mb:
+    sta ast_msb
+    sta ast_msb
+    rts
+
+.done:
+    rts
+ast_tmp: !byte 0
+
+ast_update:
+    ;; Re-enable asteroid sprites in $D015 (death handlers clear them)
+    lda state
+    cmp #GAME_PLAYING
+    bne .no_fix
+    lda ast_active
+    asl
+    asl                  ; shift to bits 2-4
+    ora $d015
+    sta $d015
+.no_fix:
+
+    ;; Decrement spawn timer
+    lda ast_timer
+    beq .spwn
+    dec ast_timer
+    bne .spwn_d
+.spwn:
+    jsr ast_spawn
+    lda #100            ; respawn: 2 seconds at 50fps
+    sta ast_timer
+.spwn_d:
+
+    ;; Move active asteroids
+    ldx #2
+.mv_lp:
+    lda ast_active
+    cpx #0
+    bne .mv_c1
+    and #$01
+    bne .mvs1
+    jmp .mv_nx
+.mvs1:
+    jmp .do_move
+.mv_c1:
+    cpx #1
+    bne .mv_c2
+    and #$02
+    bne .mvs2
+    jmp .mv_nx
+.mvs2:
+    jmp .do_move
+.mv_c2:
+    and #$04
+    bne .mvs3
+    jmp .mv_nx
+.mvs3:
+.do_move:
+
+    ;; Move Y (always up = add negative dy = subtract)
+    lda ast_y, x
+    clc
+    adc ast_dy, x
+    sta ast_y, x
+
+    ;; Move X (signed addition)
+    lda ast_dx, x
+    bmi .dx_neg
+    clc
+    lda ast_x, x
+    adc ast_dx, x
+    jmp .dx_done
+.dx_neg:
+    clc
+    lda ast_x, x
+    adc ast_dx, x      ; adding a negative = subtract
+.dx_done:
+    sta ast_x, x
+    bcc .no_msb
+    ;; Set MSB if carry (X >= 256)
+    lda ast_msb
+    cpx #0
+    bne .ms1
+    ora #$01
+    bne .ms_sv
+.ms1:
+    cpx #1
+    bne .ms2
+    ora #$02
+    bne .ms_sv
+.ms2:
+    ora #$04
+.ms_sv:
+    sta ast_msb
+.no_msb:
+
+    ;; Write to VIC registers (indexed fall-through bugfix)
+    cpx #0
+    bne .wx1
+    lda ast_x
+    sta $d004
+    lda ast_y
+    sta $d005
+    jmp .mv_nx
+.wx1:
+    cpx #1
+    bne .wx2
+    lda ast_x, x
+    sta $d006
+    lda ast_y, x
+    sta $d007
+    jmp .mv_nx
+.wx2:
+    lda ast_x, x
+    sta $d008
+    lda ast_y, x
+    sta $d009
+
+    ;; Check if off-screen (Y < 10 or Y > 235)
+    lda ast_y, x
+    cmp #10
+    bcc .despawn
+    cmp #236
+    bcc .mv_nx
+
+.despawn:
+    lda ast_active
+    cpx #0
+    bne .ds1
+    and #$FE
+    bne .ds_sv
+.ds1:
+    cpx #1
+    bne .ds2
+    and #$FD
+    bne .ds_sv
+.ds2:
+    and #$FB
+.ds_sv:
+    sta ast_active
+
+.mv_nx:
+    dex
+    bmi .mv_done
+    jmp .mv_lp
+.mv_done:
+    rts
+
+ast_collision:
+    ;; DMZ protection: player X >= 224
+    lda $d010
+    and #$01
+    bne .ac_done
+    lda $d000
+    cmp #224
+    bcs .ac_done
+
+    lda hit_timer
+    beq .ac_chk
+.ac_done:
+    rts
+.ac_chk:
+    lda c_saved
+    and #$1C          ; sprite 0 vs sprite 2/3/4
+    bne .ac_hit
+    rts
+.ac_hit:
+    ;; Distance gate — same as enemy
+    ldy #2              ; check each asteroid slot
+.acd_lp:
+    lda ast_active
+    ;; Check if this slot is active and within range
+    cpy #0
+    bne .acd1
+    and #$01
+    beq .acd_nx
+    lda $d000
+    sec
+    sbc $d004
+    bcs .acd_ax0
+    eor #$FF
+    adc #1
+.acd_ax0:
+    cmp #18
+    bcc .acd_y0
+    bcs .acd_nx
+.acd_y0:
+    lda $d001
+    sec
+    sbc $d005
+    bcs .acd_ay0
+    eor #$FF
+    adc #1
+.acd_ay0:
+    cmp #18
+    bcc .ac_real_hit
+    jmp .acd_nx
+
+.acd1:
+    cpy #1
+    bne .acd2
+    and #$02
+    beq .acd_nx
+    lda $d000
+    sec
+    sbc $d006
+    bcs .acd_ax1
+    eor #$FF
+    adc #1
+.acd_ax1:
+    cmp #18
+    bcc .acd_y1
+    bcs .acd_nx
+.acd_y1:
+    lda $d001
+    sec
+    sbc $d007
+    bcs .acd_ay1
+    eor #$FF
+    adc #1
+.acd_ay1:
+    cmp #18
+    bcc .ac_real_hit
+    jmp .acd_nx
+
+.acd2:
+    and #$04
+    beq .acd_nx
+    lda $d000
+    sec
+    sbc $d008
+    bcs .acd_ax2
+    eor #$FF
+    adc #1
+.acd_ax2:
+    cmp #18
+    bcc .acd_y2
+    bcs .acd_nx
+.acd_y2:
+    lda $d001
+    sec
+    sbc $d009
+    bcs .acd_ay2
+    eor #$FF
+    adc #1
+.acd_ay2:
+    cmp #18
+    bcc .ac_real_hit
+
+.acd_nx:
+    dey
+    bmi .acd_done
+    jmp .acd_lp
+.acd_done:
+    rts
+
+.ac_real_hit:
+    lda c_saved
+    sta $d01e
+
+    dec lives
+    lda #GAME_DYING
+    sta state
+    lda #150
+    sta state_tmr
+    lda #0
+    sta flash_tmr
+    sta hit_timer
+
+    lda #<5000
+    sta $D400
+    lda #>5000
+    sta $D401
+    lda #$21
+    sta $D404
+    lda #$01
+    sta $D405
+    lda #$00
+    sta $D406
+    lda #$0F
+    sta $D418
+    lda #20
+    sta snd_timer
     rts
 
 
@@ -747,3 +1313,115 @@ d_t1:   !byte 0
 d_m32:  !byte 0
 d_m32h: !byte 0
 d_tmp:  !byte 0
+
+;; -- Rock sprite data (asteroid) --
+;; ============================================================
+;; Cheat: press SPACE to cycle through levels 1-5
+;; ============================================================
+cheat_keys:
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10             ; 0 = SPACE pressed
+    beq chk_pressed
+    jmp chk_up
+chk_pressed:
+
+    ;; SPACE pressed — was it NOT pressed last frame?
+    lda cheat_spc
+    bne chk_edge           ; was not pressed → edge!
+    rts                    ; holding SPACE, no new edge
+
+chk_edge:
+    ;; Advance level 1→2→3→4→5→1
+    inc level
+    lda level
+    cmp #6
+    bcc chk_set
+    lda #1
+    sta level
+
+chk_set:
+    ldx level
+    dex
+    lda chk_speeds, x
+    sta speed_div
+    txa
+    asl
+    tax
+    lda chk_offs, x
+    sta score
+    lda chk_offs+1, x
+    sta score+1
+    sta prev_k           ; match score high byte so level_update skips
+    ora score
+    beq chk_clr            ; level 1: no chirp
+    jsr chk_sid
+
+chk_clr:
+    lda #0
+    sta cheat_spc
+    ;; Force immediate asteroid at level 2+ with random angle
+    lda level
+    cmp #2
+    bcc chk_rts
+    lda ast_active
+    bne chk_rts
+    ;; Pick random angle
+    jsr lfsr_tick
+    and #$07
+    asl
+    tax
+    lda ast_angles, x
+    sta ast_dy          ; dy for slot 0
+    lda ast_angles+1, x
+    sta ast_dx          ; dx for slot 0
+    ;; Random X
+    jsr lfsr_tick
+    and #$7F
+    adc #40
+    sta ast_x
+    sta $d004
+    lda #210
+    sta ast_y
+    sta $d005
+    ;; Activate
+    lda #1
+    sta ast_active
+    lda ast_msb
+    and #$FE
+    sta ast_msb
+    lda $d015
+    ora #$04
+    sta $d015
+    lda #1             ; quick respawn
+    sta ast_timer
+chk_rts:
+    rts
+
+chk_up:
+    lda #$10
+    sta cheat_spc          ; remember: SPACE not pressed
+    rts
+chk_speeds: !byte 2,2,1,1,1    ; speed_div per level
+chk_offs:   !word 0, 1000, 2000, 3000, 4000  ; score values
+
+chk_sid:
+    lda #$40
+    sta $D40E
+    lda #$1F
+    sta $D40F
+    lda #$29
+    sta $D412
+    lda #$00
+    sta $D413
+    lda #$11
+    sta $D414
+    lda #$0F
+    sta $D418
+    lda #10
+    sta snd_timer
+    rts
+
+* = $2140
+    !bin "assets/sprites/rock.spr"

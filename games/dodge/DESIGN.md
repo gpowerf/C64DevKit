@@ -43,6 +43,28 @@ The safe zone displays animated digital noise in the style of Yars' Revenge:
 - GAME OVER: "GAME OVER" + "PRESS SPACE TO PLAY" centered
 - SPACE restarts: lives=3, score=0, player at (160,120), enemy at (100,80)
 
+## Levels
+Every 1000 points the difficulty increases:
+
+| Level | Score | Asteroids | Enemy Speed | Spawn Delay |
+|-------|-------|-----------|-------------|-------------|
+| 1 | 0–999 | 0 | Slow (2) | — |
+| 2 | 1000–1999 | 1 | Slow (2) | ~100 frames |
+| 3 | 2000–2999 | 1 | Fast (1) | ~100 frames |
+| 4 | 3000–3999 | 2 | Fast (1) | ~100 frames |
+| 5+ | 4000+ | 3 | Fast (1) | ~100 frames |
+
+A short SID chirp (voice 3) plays when level increases.
+
+## Asteroids
+- Spawn from bottom of screen (Y ≈ 210) at a random X position.
+- Move upward at a random angle from an 8-entry table — straight line.
+- Exit top of screen → despawn → respawn after 2 second delay.
+- Player sprite collision check uses `$D01E` bits 2–4 (sprites 2/3/4).
+- If player is in DMZ (MSB set): asteroid passes through safely.
+- Simple rock blob sprite at $2140 (block $85), reused for all 3.
+- Colours: yellow (7), orange (8), light red (10).
+
 ## Death
 - On collision: enemy teleports opposite player, player flashes for 150 frames
 - Sound: saw wave short blast (20 frames)
@@ -52,10 +74,8 @@ The safe zone displays animated digital noise in the style of Yars' Revenge:
 ## Enemy AI
 - Starts at (100, 80)
 - Chases player at 1px every 2 frames (approximately)
-- Clamped to visible area: X 24-200, Y 50-229
-
-> Clamping X to 200 keeps the enemy sprite (24px wide, right edge at X+23) out of the blue safe zone, which starts at col 28 (pixel 224).
-- Cannot follow player past X=200 (safe zone boundary)
+- Clamped to visible area: X 24-224, Y 50-229
+- Cannot follow player past X=224 (safe zone boundary)
 
 ## Player movement
 - 9-bit X positioning with $D010 MSB
@@ -106,6 +126,7 @@ $2040-$207F: player left   sprite  (block $81)
 $2080-$20BF: player up     sprite  (block $82)
 $20C0-$20FF: player down   sprite  (block $83)
 $2100-$213F: enemy skull   sprite  (block $84)
+$2140-$217F: asteroid rock sprite  (block $85)
 $3800-$3FFF: copied ROM charset (2KB)
 ```
 
