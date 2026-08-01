@@ -243,21 +243,23 @@ See `docs/ARCHITECTURE.md` for design decisions, data flow, and extension points
 
 ## Roadmap
 
-- [x] Project scaffold & toolchain (`doctor`, `new`, `build`, `run`, `clean`)
-- [x] VIC-II sprite setup and joystick reading
-- [x] ACME macro library (VIC, CIA, SID register constants, basic utility macros)
+- [x] Project scaffold & toolchain (`doctor`, `new`, `build`, `run`, `clean`, `setup`)
+- [x] VIC-II sprite setup and joystick/keyboard input
+- [x] ACME macro library (VIC, CIA, SID register constants + utility macros)
 - [x] VICE remote monitor bridge (`ViceMonitor` class)
-- [x] Test runner — static verification + spec validation (6 assertion types, runs on every build)
-- [ ] Live VICE testing — requires display or xvfb; framework in place for when available
-- [x] SID sound macros — register constants + `play_sound` action (frequency, waveform, gate)
-- [x] Behavior DSL compiler — compile behaviors.yaml actions to assembly (update_sprite, inc_score, set_sprite_pos, play_sound, check_collision)
-- [x] Multi-sprite support (via behavior DSL; hardcoded fallback still only handles sprite 0)
-- [x] Collision detection (hardware sprite-sprite collision with handler dispatch)
-- [ ] Multi-sprite code generation (currently only sprite 0 gets joystick update)
-- [ ] SID sound macros (play note, set waveform, ADSR envelopes)
-- [x] SID sound macros — note-to-frequency table, ADSR envelopes, play_note, gate, volume, duration tracking
+- [x] Test runner — static verification + spec validation (6 checks)
+- [ ] Live VICE testing — headless runtime test execution (requires xvfb)
+- [x] SID sound — note-to-frequency table, ADSR envelopes, gate, volume, duration tracking
+- [x] Behavior DSL compiler — 7 action types (update_sprite, set_sprite_pos, inc_score, play_sound, check_collision, display_text, read_joystick)
+- [x] Collision detection (hardware sprite-sprite with cooldown + handler dispatch)
+- [x] Multi-sprite support (via behavior DSL, each sprite gets individual pointer)
+- [x] Character/text display — `display_text` action writes to screen RAM with color
+- [x] Spec validation — memory bounds, sprite indices, position ranges, name references
+- [x] VICE label file output + fixed variable addresses
+- [x] OpenCode skill packaged (`bin/install-skill`)
+- [x] C64 code pattern recipes in SKILL.md (8 patterns)
+- [x] Sprite Dodge example game (760 lines, state machine, zones, scoring)
 - [ ] Image-based regression testing (VICE screenshot diffing)
-- [ ] OpenCode skill plugin package
 
 ## License
 
