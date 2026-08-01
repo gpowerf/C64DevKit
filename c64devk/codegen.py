@@ -83,7 +83,25 @@ def _emit_init(spec: "ProjectSpec", init_addr: int, lines: list[str]) -> None:
     _emit_irq_setup(spec, lines)
     _emit_sprite_memory_setup(spec, lines)
     lines.append("")
-    lines.append("\tcli")
+
+    if _behaviors_need_text(spec):
+        lines.append("\t;; Copy ROM charset to RAM for text display")
+        lines.append("\tsei")
+        lines.append("\tlda #$33")
+        lines.append("\tsta $01")
+        lines.append("\tldx #0")
+        for page in range(8):
+            src = 0xD000 + page * 0x100
+            dst = spec.screen.charset_addr + page * 0x100
+            lines.append(f"\tlda ${src:04X}, x")
+            lines.append(f"\tsta ${dst:04X}, x")
+        lines.append("\tinx")
+        lines.append("\tbne *-16      ; continue copy loop")
+        lines.append("\tlda #$37")
+        lines.append("\tsta $01")
+        lines.append("\tcli")
+    else:
+        lines.append("\tcli")
     lines.append("\tjsr init_sprites")
     lines.append("\tjmp main_loop")
     lines.append("")
@@ -304,6 +322,14 @@ def _behaviors_need_sound(spec: "ProjectSpec") -> bool:
     return False
 
 
+def _behaviors_need_text(spec: "ProjectSpec") -> bool:
+    for b in spec.behaviors:
+        for a in b.actions:
+            if a.type == "display_text":
+                return True
+    return False
+
+
 def _behaviors_sound_voices(spec: "ProjectSpec") -> set[int]:
     voices: set[int] = set()
     for b in spec.behaviors:
@@ -436,6 +462,7 @@ def _emit_action(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: l
         "inc_score": _emit_action_inc_score,
         "play_sound": _emit_action_play_sound,
         "check_collision": _emit_action_inline_collision,
+        "display_text": _emit_action_display_text,
     }
     emitter = action_emitters.get(action.type)
     if emitter:
@@ -595,6 +622,36 @@ def _emit_action_inline_collision(spec: "ProjectSpec", action: "Action", lines: 
     lines.append(f"\tsta $d01e")
     lines.append(f"\tjsr beh_handler_{_safe_label(action.params.get('handler', sprites_raw[0] + '_' + sprites_raw[1]))}")
     lines.append(f"{skip}:")
+
+
+def _emit_action_display_text(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: list[int]) -> None:
+    """Emit text display to screen RAM."""
+    text = str(action.params.get("text", ""))
+    if not text:
+        return
+    row = int(action.params.get("row", 0))
+    col = int(action.params.get("col", 0))
+    color = int(action.params.get("color", 0))
+
+    screen_addr = spec.screen.screen_ram + row * 40 + col
+    color_addr = 0xD800 + row * 40 + col
+    label = _next_beh_label(cnt, "txt")
+    lines.append(f"\t;; display_text: \"{text}\" at row {row}, col {col}")
+    lines.append(f"\tldx #0")
+    lines.append(f"{label}_lp:")
+    lines.append(f"\tlda {label}_dat, x")
+    lines.append(f"\tbeq {label}_dn")
+    lines.append(f"\tsta ${screen_addr:04X}, x")
+    if color:
+        lines.append(f"\tlda #{color}")
+        lines.append(f"\tsta ${color_addr:04X}, x")
+    lines.append(f"\tinx")
+    lines.append(f"\tbne {label}_lp")
+    lines.append(f"{label}_dn:")
+    lines.append("")
+    lines.append(f"{label}_dat:")
+    lines.append(f'\t!scr \"{text}\", 0')
+    lines.append("")
 
 
 def _emit_sprite_init_behavior(spec: "ProjectSpec", lines: list[str]) -> None:

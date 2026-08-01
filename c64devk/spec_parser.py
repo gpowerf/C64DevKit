@@ -123,6 +123,10 @@ class Action:
             return {"amount": int(value)}
         elif action_type == "check_collision":
             return {"sprites": str(value).split(",")}
+        elif action_type == "display_text":
+            if isinstance(value, str):
+                return {"text": value}
+            return value
         else:
             return {"value": value}
 

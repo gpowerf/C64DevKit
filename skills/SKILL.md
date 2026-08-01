@@ -215,6 +215,16 @@ Sets frequency, waveform, and gate on the specified SID voice. Volume is set to 
 ```
 Checks for collision between two sprites. If detected, acknowledges the collision and branches to the named handler. (For simple inline dispatch; prefer on_collision behavior type.)
 
+**`display_text`** — write text to screen RAM
+```yaml
+- display_text:
+    text: "SCORE: 0"
+    row: 0                 # 0-24
+    col: 0                 # 0-39
+    color: 7               # optional, 0-15
+```
+Writes PETSCII text to the screen at the specified row/column. The ROM charset is automatically copied to RAM during init ($3800). If `color` is specified, also sets the color RAM at the same position. Characters wrap if they exceed 255 bytes. Use multiple `display_text` actions for multiple lines or positions.
+
 ### Color Reference
 
 ```

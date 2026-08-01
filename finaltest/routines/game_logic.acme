@@ -1,0 +1,28 @@
+;; game_logic.acme — Custom game logic
+;; Called every frame, AFTER behaviors_update and BEFORE update_sprites.
+;;
+;; Available variables (framework sets these before calling you):
+;;   joystick_state  — byte, WASD directions (JOY_UP/DOWN/LEFT/RIGHT flags)
+;;   joystick_prev   — byte, previous frame's joystick state
+;;   frame_ready     — byte, set to 1 on each raster IRQ
+;;   score           — word (16-bit), if any behavior uses inc_score
+;;
+;; VIC-II registers you can read/write:
+;;   $d000-$d007 — sprite 0-7 X/Y positions
+;;   $d010       — MSB of sprite X positions (bit per sprite)
+;;   $d015       — sprite enable bits
+;;   $d01e       — sprite-sprite collision (read to check, write to clear)
+;;   $d020       — border color (0-15)
+;;   $d021       — background color (0-15)
+;;   $d027-$d02e — sprite colors
+;;
+;; SID registers:
+;;   $d400-$d406 — voice 1 (freq, pulse, control, ADSR)
+;;   $d407-$d40d — voice 2
+;;   $d40e-$d414 — voice 3
+;;   $d418       — master volume (lower 4 bits)
+;;
+;; IMPORTANT: place data (!byte, !word) AFTER a jmp, not at the top.
+;; See skills/SKILL.md for C64 code pattern recipes.
+
+    rts
