@@ -218,12 +218,12 @@ Checks for collision between two sprites. If detected, acknowledges the collisio
 **`display_text`** — write text to screen RAM
 ```yaml
 - display_text:
-    text: "SCORE: 0"
+    text: "score: 0"         # use lowercase — ACME !scr maps a-z to PETSCII
     row: 0                 # 0-24
     col: 0                 # 0-39
     color: 7               # optional, 0-15
 ```
-Writes PETSCII text to the screen at the specified row/column. The ROM charset is automatically copied to RAM during init ($3800). If `color` is specified, also sets the color RAM at the same position. Characters wrap if they exceed 255 bytes. Use multiple `display_text` actions for multiple lines or positions.
+Writes PETSCII text to the screen at the specified row/column. The ROM charset is automatically copied to RAM during init ($3800). **Use lowercase letters** — ACME's `!scr` directive converts lowercase ASCII to PETSCII screen codes (a→$01, b→$02, ..., z→$1A). Uppercase letters are passed through as-is and display as graphics characters. If `color` is specified, also sets the color RAM at the same position.
 
 ### Color Reference
 

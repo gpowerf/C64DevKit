@@ -4,7 +4,7 @@ behaviors:
   - name: hud
     type: on_frame
     actions:
-      - display_text: {text: "SCORE:", row: 0, col: 0, color: 1}
+      - display_text: {text: "score:", row: 0, col: 0, color: 1}
       - display_number: {variable: score, row: 0, col: 6, digits: 5, color: 1}
-      - display_text: {text: "  LIVES:", row: 0, col: 11, color: 1}
+      - display_text: {text: "  lives:", row: 0, col: 11, color: 1}
       - display_number: {variable: lives, row: 0, col: 19, digits: 1, color: 1, size: 1}
