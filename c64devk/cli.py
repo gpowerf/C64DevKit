@@ -39,6 +39,7 @@ def main() -> None:
     p_test.add_argument("--project", "-p", default=".", help="Project directory")
     p_clean = sub.add_parser("clean", help="Remove output/ directory")
     p_clean.add_argument("--project", "-p", default=".", help="Project directory")
+    sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
 
     args = parser.parse_args()
     if not args.command:
@@ -58,6 +59,8 @@ def main() -> None:
             cmd_test(args.project)
         case "clean":
             cmd_clean(args.project)
+        case "setup":
+            cmd_setup()
         case _:
             parser.print_help()
 
@@ -217,6 +220,155 @@ def cmd_clean(project_path: str) -> None:
         return
     shutil.rmtree(output_dir)
     print(f"Removed {output_dir}")
+
+
+def cmd_setup() -> None:
+    """Install and configure all dependencies interactively."""
+    import os
+    from .config import get_framework_dir
+
+    print("C64DevKit Setup\n")
+
+    # 1. PyYAML
+    print("--- Python dependencies ---")
+    try:
+        import yaml
+        print("  PyYAML: installed")
+    except ImportError:
+        print("  PyYAML: installing...")
+        subprocess.run([sys.executable, "-m", "pip", "install", "pyyaml"],
+                       capture_output=True)
+        try:
+            import yaml
+            print("  PyYAML: installed")
+        except ImportError:
+            print("  PyYAML: FAILED — run: pip install pyyaml")
+
+    # 2. ACME
+    print("\n--- ACME assembler ---")
+    acme_path = shutil.which("acme")
+    if acme_path:
+        result = subprocess.run([acme_path, "--version"], capture_output=True, text=True)
+        ver = result.stdout.strip().split("\n")[0] if result.stdout else "unknown"
+        print(f"  ACME: found ({ver})")
+    else:
+        print("  ACME: not found — compiling from source...")
+        success = _install_acme()
+        if success:
+            print("  ACME: compiled and installed to ~/.local/bin")
+        else:
+            print("  ACME: FAILED — install manually: sudo apt install acme")
+            print("         or: pip install acme")
+
+    # 3. VICE ROMs
+    print("\n--- VICE ROM files ---")
+    vice = shutil.which("x64sc") or shutil.which("x64")
+    if vice:
+        print(f"  VICE: found ({vice})")
+        rom_dir = Path.home() / ".c64devk" / "roms"
+        succeed = True
+        mapping = {
+            "kernal-901227-03.bin": "kernal",
+            "basic-901226-01.bin": "basic",
+            "chargen-901225-01.bin": "chargen",
+        }
+        rom_src = Path("/usr/share/vice/C64")
+        if not rom_src.exists():
+            alt_dirs = ["/usr/share/vice/", "/usr/local/share/vice/"]
+            for ad in alt_dirs:
+                p = Path(ad) / "C64"
+                if p.exists():
+                    rom_src = p
+                    break
+
+        if rom_src.exists():
+            rom_dir.mkdir(parents=True, exist_ok=True)
+            for src_name, dst_name in mapping.items():
+                src = rom_src / src_name
+                dst = rom_dir / dst_name
+                if not src.exists():
+                    print(f"  ROM: {src_name} not found at {rom_src}")
+                    succeed = False
+                elif not dst.exists():
+                    os.symlink(str(src), str(dst))
+                    print(f"  ROM: {dst_name} → {src_name}")
+                else:
+                    print(f"  ROM: {dst_name} already set up")
+        else:
+            print(f"  ROM: C64 ROM directory not found (looked in {rom_src})")
+            print(f"       Install VICE ROMs: sudo apt install vice")
+            succeed = False
+
+        if succeed:
+            print("  VICE ROMs: ready")
+    else:
+        print("  VICE: not found — install: sudo apt install vice")
+
+    # 4. PATH
+    print("\n--- PATH setup ---")
+    framework_bin = str(get_framework_dir() / "bin")
+    path_parts = os.environ.get("PATH", "").split(":")
+    if framework_bin in path_parts:
+        print(f"  PATH: already includes {framework_bin}")
+    else:
+        rc_files = [Path.home() / f for f in [".bashrc", ".profile", ".zshrc"]]
+        added = False
+        for rc in rc_files:
+            if rc.exists():
+                content = rc.read_text()
+                if framework_bin not in content:
+                    with open(rc, "a") as f:
+                        f.write(f'\nexport PATH="$PATH:{framework_bin}"  # c64devk\n')
+                    print(f"  PATH: added to {rc}")
+                    added = True
+        if not added:
+            print(f"  PATH: add this manually:")
+            print(f'    export PATH="$PATH:{framework_bin}"')
+
+    # 5. Verify
+    print("\n--- Verification ---")
+    cmd_doctor()
+    print("\nSetup complete. Run 'c64devk new mygame' to create your first project.")
+
+
+def _install_acme() -> bool:
+    """Compile and install ACME to ~/.local/bin. Returns True on success."""
+    import tempfile
+
+    local_bin = Path.home() / ".local" / "bin"
+    local_bin.mkdir(parents=True, exist_ok=True)
+    target = local_bin / "acme"
+
+    if target.exists():
+        return True
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="acme_"))
+    try:
+        # Clone ACME
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", "0.96.5",
+             "https://github.com/jan0sch/acme-crossassembler.git", str(tmpdir)],
+            capture_output=True, timeout=30
+        )
+        srcdir = tmpdir / "src"
+        if not srcdir.exists():
+            return False
+
+        subprocess.run(
+            ["make", "-j", str(os.cpu_count() or 2), "-C", str(srcdir)],
+            capture_output=True, timeout=60
+        )
+        acme_bin = srcdir / "acme"
+        if acme_bin.exists():
+            shutil.copy2(acme_bin, target)
+            target.chmod(0o755)
+            return True
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return False
 
 
 def _check_binary(name: str, version_arg: str) -> str | None:
