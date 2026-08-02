@@ -1322,19 +1322,19 @@ di_row:
     lda d_ri
     jsr d_mul40
     clc
-    lda $02
+    lda $57
     adc #28
-    sta $02
-    lda $03
+    sta $57
+    lda $58
     adc #>$D800
-    sta $03
+    sta $58
     ldy #11
 di_col:
     jsr lfsr_tick
     and #$07
     tax
     lda dmz_colors, x
-    sta ($02), y
+    sta ($57), y
     dey
     bpl di_col
     inc d_ri
@@ -1359,18 +1359,18 @@ dr_row:
     lda d_ri
     jsr d_mul40
     clc
-    lda $02
+    lda $57
     adc #28
-    sta $02
-    lda $03
+    sta $57
+    lda $58
     adc #>$D800
-    sta $03
+    sta $58
 
     ldy #11
 dr_col:
     jsr lfsr_tick
     and #$0F            ; random colour 0-15
-    sta ($02), y
+    sta ($57), y
     dey
     bpl dr_col
 
@@ -1386,7 +1386,7 @@ d_mul40:
     asl
     asl
     asl
-    sta $02             ; row * 8
+    sta $57             ; row * 8
     lda d_t1
     sta d_m32
     lda #0
@@ -1403,11 +1403,11 @@ d_mul40:
     rol d_m32h
     clc
     lda d_m32
-    adc $02
-    sta $02
+    adc $57
+    sta $57
     lda d_m32h
     adc #0
-    sta $03
+    sta $58
     rts
 d_t1:   !byte 0
 d_m32:  !byte 0
@@ -1729,8 +1729,8 @@ draw_splash:
 .ds_clr:
     sta $0400, x
     sta $0500, x
-    sta $0600, x
-    sta $06e8, x
+    sta $5900, x
+    sta $59e8, x
     lda #0
     sta $d800, x
     sta $d900, x
@@ -1812,36 +1812,36 @@ draw_splash:
     lda .ds_rv
     jsr d_mul40
     clc
-    lda $02
+    lda $57
     adc .ds_cv
-    sta $02
-    lda $03
+    sta $57
+    lda $58
     adc #0
-    sta $03
+    sta $58
     clc
-    lda $02
+    lda $57
     adc #<$0400
-    sta $02
-    lda $03
+    sta $57
+    lda $58
     adc #>$0400
-    sta $03
+    sta $58
     lda .ds_ch
     ldy #0
-    sta ($02), y
+    sta ($57), y
     ;; Color address = screen addr + $D400
     clc
-    lda $02
+    lda $57
     adc #<$D400
-    sta $06
-    lda $03
+    sta $59
+    lda $58
     adc #>$D400
-    sta $07
+    sta $5A
     jsr lfsr_tick
     and #$07
     tay
     lda dmz_colors, y
     ldy #0
-    sta ($06), y
+    sta ($59), y
     dex
     bpl .ds_star
     rts
