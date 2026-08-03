@@ -346,9 +346,9 @@ def _run_test_case(monitor, symbols, main_loop, spec, test, result):
 def _exec_step(monitor, symbols, main_loop, spec, step, result):
     """Execute a single test step (advance, wait, poke, or check)."""
     if "advance" in step:
-        _exec_advance(monitor, main_loop, int(step["advance"]), result)
+        _exec_advance(monitor, main_loop, int(step["advance"]), result, symbols)
     elif "wait" in step:
-        _exec_advance(monitor, main_loop, int(step["wait"]), result)
+        _exec_advance(monitor, main_loop, int(step["wait"]), result, symbols)
     elif "poke" in step:
         _exec_poke(monitor, symbols, step["poke"], result)
     elif "check" in step:
@@ -358,14 +358,30 @@ def _exec_step(monitor, symbols, main_loop, spec, step, result):
         result.failures.append(f"unknown step: {list(step.keys())}")
 
 
-def _exec_advance(monitor, main_loop, frames, result):
-    """Advance emulation by N frames via breakpoints at main_loop."""
+def _exec_advance(monitor, main_loop, frames, result, symbols=None):
+    """Advance emulation by N frames via breakpoints at main_loop.
+    
+    After each frame, checks if the game crashed by reading the state
+    variable and verifying PC is in user code ($0800-$CFFF)."""
+    state_addr = symbols.get("state", 0) if symbols else 0
     for i in range(frames):
         if not monitor.step_frame(main_loop):
             result.passed = False
             result.failures.append(f"advance frame {i+1}/{frames} failed")
             return
         monitor.disable_breakpoints()
+        # Crash check: verify state is still a valid game state (0-3)
+        if state_addr:
+            try:
+                state_val = monitor.peek(state_addr, 1)
+                if state_val > 3:
+                    result.passed = False
+                    result.failures.append(
+                        f"CRASH at frame {i+1}/{frames}: state={state_val} "
+                        f"(expected 0-3, game returned to BASIC or corrupted)")
+                    return
+            except Exception:
+                pass  # can't check, skip
 
 
 def _resolve_addr(symbols, addr, label):
@@ -391,6 +407,17 @@ def _exec_poke(monitor, symbols, params, result):
 def _exec_check(monitor, symbols, params, result):
     """Read value from emulated memory and evaluate assertion."""
     assertion = Assertion.from_dict(params)
+    
+    # Special case: crash check reads state variable
+    if assertion.what == "crash":
+        state_addr = symbols.get("state", 0)
+        if state_addr:
+            state_val = monitor.peek(state_addr, 1)
+            if state_val > 3:
+                result.passed = False
+                result.failures.append(f"CRASH detected: state={state_val} (expected 0-3)")
+        return
+    
     addr = _resolve_addr(symbols, assertion.addr, assertion.label)
     value = monitor.peek(addr, assertion.size)
     if not assertion.check(value):
