@@ -1,0 +1,157 @@
+;; ============================================================
+;; c64devk collision detection & game loop patterns
+;; Reference: standard C64 hardware collision registers
+;; License: MIT — freely usable
+;; ============================================================
+;;
+;; C64 has two hardware collision registers:
+;;   $D01E — sprite-sprite collision  (bits = pairs that overlap)
+;;   $D01F — sprite-data collision    (bits = sprites overlapping data)
+;;
+;; Both are LATCHED registers: once a collision happens, the
+;; corresponding bit stays set until you WRITE to the register.
+;; Reading $D01E does NOT clear it — you must write back.
+;;
+;; To check multi-sprite collisions, read $D01E ONCE, save the
+;; value, and clear by writing it back after all checks are done.
+
+;; ============================================================
+;; Pattern 1: Basic sprite-sprite collision check
+;; ============================================================
+;;
+;;     ;; Check collision between sprite 0 and sprite 1
+;;     lda $d01e               ; read collision register
+;;     and #$03                ; bit 0 = 0-1, bit 1 = 0-2, etc.
+;;     cmp #$01                ; check bit 0 (sprite 0 vs 1)
+;;     bne .no_collision
+;;     sta $d01e               ; acknowledge by writing back
+;;     ;; handle collision
+;; .no_collision:
+;;     rts
+
+;; ============================================================
+;; Pattern 2: Multi-sprite collision (read once, check many)
+;; ============================================================
+;;
+;;     lda $d01e               ; snapshot collision state
+;;     sta collision_saved
+;;
+;;     ;; Check enemy (sprite 0 vs 1)
+;;     lda collision_saved
+;;     and #$01                ; bit 0: sprite 0-1
+;;     beq .chk_rock
+;;     jsr handle_enemy_hit    ; could clear $D01E with sta
+;; .chk_rock:
+;;     lda collision_saved
+;;     and #$04                ; bit 2: sprite 0-2 (rock 0)
+;;     beq .chk_rock2
+;;     jsr handle_rock_hit
+;; .chk_rock2:
+;;     lda collision_saved
+;;     and #$08                ; bit 3: sprite 0-3 (rock 1)
+;;     beq .done
+;;     jsr handle_rock_hit
+;; .done:
+;;     ;; Clear any remaining bits in $D01E
+;;     lda collision_saved
+;;     sta $d01e
+;;     rts
+
+;; ============================================================
+;; Pattern 3: Distance-gated collision (hardware + software check)
+;; ============================================================
+;;
+;; Hardware collision fires on ANY pixel overlap, even when
+;; sprites barely touch at the edges.  Add a distance check
+;; to only accept collisions when sprites are genuinely close.
+
+;; === Absolute value of (A - B) ===
+;;     ; Input:  A = pos1_x, B = pos2_x
+;;     ; Output: A = |pos1_x - pos2_x|
+;;     sec
+;;     sbc pos2_x
+;;     bcs .positive
+;;     eor #$ff
+;;     adc #1
+;; .positive:
+;;     cmp #18                 ; must be within 18 pixels
+;;     bcs .too_far
+;;     ;; genuine collision — sprites are close enough
+;; .too_far:
+;;     rts
+
+;; ============================================================
+;; Pattern 4: Game state machine (splash → playing → dying → over)
+;; ============================================================
+;;
+;; Frame loop:
+;;     wait_frame
+;;     read_input
+;;     dispatch_state     ; state decides which handler runs
+;;     update_sprites
+;;     goto frame_loop
+;;
+;; States as constants:
+;;     GAME_SPLASH  = 0
+;;     GAME_PLAYING = 1
+;;     GAME_DYING   = 2
+;;     GAME_OVER    = 3
+
+;; === State dispatcher ===
+;;
+;; game_update:
+;;     lda game_state
+;;     cmp #GAME_SPLASH
+;;     bne .chk_play
+;;     jmp do_splash
+;; .chk_play:
+;;     cmp #GAME_PLAYING
+;;     bne .chk_die
+;;     jmp do_playing
+;; .chk_die:
+;;     cmp #GAME_DYING
+;;     bne .chk_over
+;;     jmp do_dying
+;; .chk_over:
+;;     jmp do_gameover
+
+;; ============================================================
+;; Pattern 5: Cooldown / invulnerability timer
+;; ============================================================
+;;
+;; hit_timer:  !byte 0
+;;
+;; check_collision_with_cooldown:
+;;     lda hit_timer
+;;     beq .check
+;;     dec hit_timer           ; decrement each frame
+;;     rts
+;; .check:
+;;     ;; normal collision logic
+;;     ...
+;;     ;; on hit:
+;;     lda #150                ; 3 second invulnerability (PAL 50Hz)
+;;     sta hit_timer
+;;     rts
+
+;; ============================================================
+;; Pattern 6: LFSR pseudo-random number generator
+;; ============================================================
+;;
+;; 8-bit Galois LFSR with seed anti-stick guard.
+;; Period: 255 (never produces 0, re-seeds if it would).
+
+;; lfsr_seed:  !byte $5a       ; initial seed (non-zero)
+;;
+;; lfsr_tick:
+;;     lda lfsr_seed
+;;     lsr                     ; shift right, bit 0 goes to carry
+;;     bcc .no_xor             ; if carry clear, skip XOR
+;;     eor #$2d                ; XOR with polynomial
+;; .no_xor:
+;;     sta lfsr_seed
+;;     bne .done               ; guard: never let seed = 0
+;;     lda #$5a                ; re-seed
+;;     sta lfsr_seed
+;; .done:
+;;     rts                     ; A = random byte 1-255

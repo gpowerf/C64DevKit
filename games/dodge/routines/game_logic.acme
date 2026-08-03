@@ -877,7 +877,7 @@ ast_spawn:
     and #$7F
     adc #40
     sta ast_tmp2
-    jmp .find_lp
+    jmp .reset_x
 
 .not_bottom:
     ;; Top spawn: dy positive → Y=50, random X
@@ -893,7 +893,7 @@ ast_spawn:
     and #$7F
     adc #40
     sta ast_tmp2
-    jmp .find_lp
+    jmp .reset_x
 
 .not_top:
     ;; Check dx: negative → right edge, positive → left edge
@@ -910,7 +910,7 @@ ast_spawn:
     lda #229
 .ry_ok:
     sta ast_tmp
-    jmp .find_lp
+    jmp .reset_x
 
 .left_spawn:
     ;; Left edge: X=24, random Y 50-229
@@ -924,8 +924,10 @@ ast_spawn:
     lda #229
 .ly_ok:
     sta ast_tmp
+    jmp .reset_x
 
-    ;; Find free asteroid slot
+    ;; Find free asteroid slot (X always reset to 0 on entry)
+.reset_x:
     ldx #0
 .find_lp:
     lda ast_active
@@ -1021,17 +1023,6 @@ ast_tmp: !byte 0
 ast_tmp2: !byte 0
 
 ast_update:
-    ;; Re-enable asteroid sprites in $D015 (death handlers clear them)
-    lda state
-    cmp #GAME_PLAYING
-    bne .no_fix
-    lda ast_active
-    asl
-    asl                  ; shift to bits 2-4
-    ora $d015
-    sta $d015
-.no_fix:
-
     ;; Decrement spawn timer
     lda ast_timer
     beq .spwn
@@ -1081,12 +1072,6 @@ ast_update:
     clc
     lda ast_x, x
     adc ast_dx, x
-    jmp .dx_done
-.dx_neg:
-    clc
-    lda ast_x, x
-    adc ast_dx, x      ; adding a negative = subtract
-.dx_done:
     sta ast_x, x
     bcc .no_msb
     ;; Set MSB if carry (X >= 256)
@@ -1104,6 +1089,27 @@ ast_update:
     ora #$04
 .ms_sv:
     sta ast_msb
+    jmp .no_msb
+.dx_neg:
+    clc
+    lda ast_x, x
+    adc ast_dx, x
+    sta ast_x, x
+    ;; Clear MSB for this slot
+    lda ast_msb
+    cpx #0
+    bne .nms1
+    and #$FE
+    jmp .nmsv
+.nms1:
+    cpx #1
+    bne .nms2
+    and #$FD
+    jmp .nmsv
+.nms2:
+    and #$FB
+.nmsv:
+    sta ast_msb
 .no_msb:
 
     ;; Write to VIC registers (indexed fall-through bugfix)
@@ -1113,7 +1119,7 @@ ast_update:
     sta $d004
     lda ast_y
     sta $d005
-    jmp .mv_nx
+    jmp .ds_chk
 .wx1:
     cpx #1
     bne .wx2
@@ -1121,13 +1127,14 @@ ast_update:
     sta $d006
     lda ast_y, x
     sta $d007
-    jmp .mv_nx
+    jmp .ds_chk
 .wx2:
     lda ast_x, x
     sta $d008
     lda ast_y, x
     sta $d009
 
+.ds_chk:
     ;; Check if off-screen (Y < 10 or Y > 235)
     lda ast_y, x
     cmp #10
@@ -1156,6 +1163,19 @@ ast_update:
     bmi .mv_done
     jmp .mv_lp
 .mv_done:
+    ;; Re-enable asteroid sprites in $D015 (after spawn + movement)
+    lda state
+    cmp #GAME_PLAYING
+    bne .no_fix
+    lda $d015
+    and #$E3               ; keep bits 0-1, clear asteroid bits 2-4
+    sta $d015
+    lda ast_active
+    asl
+    asl                   ; shift to bits 2-4
+    ora $d015
+    sta $d015
+.no_fix:
     rts
 
 ast_collision:
@@ -1541,15 +1561,21 @@ chk_clr:
     jsr lfsr_tick
     and #$0F             ; 16 angles in full table
     asl
-    asl
     tay
     lda ast_angles, y
     sta ast_dx, x
     lda ast_angles+1, y
     sta ast_dy, x
-    ;; Spawn edge from direction
-    lda ast_angles, y     ; dy
-    bpl .tb               ; dy positive → top spawn
+    ;; Spawn edge from stored velocity
+    lda ast_dy, x
+    bmi bot0              ; dy < 0 → bottom
+    beq chkdx0            ; dy == 0 → left/right
+    jmp top0              ; dy > 0 → top
+chkdx0:
+    lda ast_dx, x
+    bmi rt0               ; dx < 0 → right
+    jmp lt0               ; dx >= 0 → left
+bot0:
     ;; Bottom spawn
     jsr lfsr_tick
     and #$7F
@@ -1557,11 +1583,9 @@ chk_clr:
     sta ast_x, x
     lda #210
     sta ast_y, x
-    bne .fv_reg
-.tb:
-    lda ast_angles+1, y   ; dx
-    bpl .tl               ; dx positive → left spawn
-    ;; Right spawn
+    jmp .fv_reg
+rt0:
+    ;; Right edge
     lda #255
     sta ast_x, x
     jsr lfsr_tick
@@ -1572,13 +1596,8 @@ chk_clr:
     lda #229
 .tby:
     sta ast_y, x
-    bne .fv_reg
-.tl:
-    ;; Left spawn (dx positive) or top spawn (dy positive, dx ≈ 0)
-    lda ast_angles, y
-    beq .tle              ; dy=0 → left edge
-    cmp #4
-    bcc .tle              ; dy 1-3 → might be top or left
+    jmp .fv_reg
+top0:
     ;; Top spawn
     jsr lfsr_tick
     and #$7F
@@ -1586,8 +1605,8 @@ chk_clr:
     sta ast_x, x
     lda #50
     sta ast_y, x
-    bne .fv_reg
-.tle:
+    jmp .fv_reg
+lt0:
     ;; Left edge
     lda #24
     sta ast_x, x
@@ -1723,14 +1742,14 @@ do_splash:
     rts
 
 draw_splash:
-    ;; Fill screen with space ($20) and black background
+    ;; Clear screen with spaces + black background
     ldx #0
     lda #$20
-.ds_clr:
+.s_clr:
     sta $0400, x
     sta $0500, x
-    sta $5900, x
-    sta $59e8, x
+    sta $0600, x
+    sta $06e8, x
     lda #0
     sta $d800, x
     sta $d900, x
@@ -1738,117 +1757,43 @@ draw_splash:
     sta $dae8, x
     lda #$20
     inx
-    bne .ds_clr
+    bne .s_clr
 
-    ;; Cyan bar at row 9
+    ;; Cyan bars at row 9 and 16
     ldx #0
     lda #3
-.ds_tbar:
+.s_bar:
     sta $d800+9*40, x
-    inx
-    cpx #40
-    bne .ds_tbar
-
-    ;; Cyan bar at row 16
-    ldx #0
-.ds_bbar:
     sta $d800+16*40, x
     inx
     cpx #40
-    bne .ds_bbar
+    bne .s_bar
 
-    ;; Title "LAST STAR SYSTEM" centered at row 10, col 12
+    ;; Title in white at row 10, col 12
     ldx #0
-.ds_txt:
+.s_tit:
     lda ds_title, x
-    beq .ds_t2
+    beq .s_sub
     sta $0400+10*40+12, x
     lda #1
     sta $d800+10*40+12, x
     inx
-    bne .ds_txt
-.ds_t2:
+    bne .s_tit
 
-    ;; Subtitle "PRESS SPACE TO PLAY" at row 14, col 11
+.s_sub:
+    ;; Subtitle in light gray at row 14, col 11
     ldx #0
-.ds_sub:
+.s_slp:
     lda ds_press, x
-    beq .ds_s3
+    beq .s_done
     sta $0400+14*40+11, x
     lda #15
     sta $d800+14*40+11, x
     inx
-    bne .ds_sub
-.ds_s3:
+    bne .s_slp
 
-    ;; Decorative stars in rows 2-8 and 17-22
-    ldx #24
-.ds_star:
-    jsr lfsr_tick
-    and #$01
-    tay
-    lda star_chars, y
-    sta .ds_ch
-    jsr lfsr_tick
-    and #$1F
-    cmp #2
-    bcc .ds_star          ; skip rows 0-1
-    cmp #9
-    bcc .ds_rok            ; rows 2-8 OK
-    cmp #17
-    bcc .ds_star          ; skip rows 9-16 (title area)
-    cmp #23
-    bcc .ds_rok            ; rows 17-22 OK
-    bcs .ds_star           ; skip rows 23-24
-.ds_rok:
-    tay
-    jsr lfsr_tick
-    and #$3F
-    cmp #40
-    bcs .ds_star
-    sty .ds_rv
-    sta .ds_cv
-    ;; Screen address = $0400 + row*40 + col (16-bit via d_mul40)
-    lda .ds_rv
-    jsr d_mul40
-    clc
-    lda $57
-    adc .ds_cv
-    sta $57
-    lda $58
-    adc #0
-    sta $58
-    clc
-    lda $57
-    adc #<$0400
-    sta $57
-    lda $58
-    adc #>$0400
-    sta $58
-    lda .ds_ch
-    ldy #0
-    sta ($57), y
-    ;; Color address = screen addr + $D400
-    clc
-    lda $57
-    adc #<$D400
-    sta $59
-    lda $58
-    adc #>$D400
-    sta $5A
-    jsr lfsr_tick
-    and #$07
-    tay
-    lda dmz_colors, y
-    ldy #0
-    sta ($59), y
-    dex
-    bpl .ds_star
+.s_done:
     rts
-.ds_ch: !byte 0
-.ds_rv: !byte 0
-.ds_cv: !byte 0
-star_chars: !byte $2A, $2E    ; * and .
 
 ds_title:  !scr "last star system", 0
 ds_press:  !scr "press space to play", 0

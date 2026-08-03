@@ -27,6 +27,42 @@ JOY_FIRE  = %00010000
 }
 
 ;; ============================================================
+;; IRQ handler — chain to KERNAL (cracktro/intro pattern)
+;; ============================================================
+;; The standard pattern for adding an intro: do your work,
+;; then jmp $ea31 to let KERNAL handle registers, keyboard,
+;; jiffy clock, STOP key, and RTI. Safe, battle-tested.
+;; Used by countless C64 intros, demos, and cracktros.
+!macro c64_irq_chain_kernal {
+    lda $d019
+    sta $d019
+    inc frame_ready
+    jmp $ea31
+}
+
+;; ============================================================
+;; IRQ handler — fully custom register save/restore
+;; ============================================================
+;; Only use this when you need to avoid KERNAL entirely.
+;; Must balance: 3 pushes (save) + CPU 3 pushes (IRQ entry)
+;;             = 3 pops (restore) + RTI 3 pops
+!macro c64_irq_save_regs {
+    pha
+    txa
+    pha
+    tya
+    pha
+}
+!macro c64_irq_restore_regs {
+    pla
+    tay
+    pla
+    tax
+    pla
+    rti
+}
+
+;; ============================================================
 ;; Sprite management
 ;; ============================================================
 !macro c64_sprite_enable_all {

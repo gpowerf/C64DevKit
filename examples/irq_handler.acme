@@ -1,0 +1,127 @@
+;; ============================================================
+;; c64devk IRQ handler patterns
+;; Reference implementations from open-source C64 projects
+;; ============================================================
+;;
+;; Sources:
+;;   - Burger Time C64 (github.com/1888games/Burger-Time-C64-)
+;;     Uses nested IRQ handlers with StoreState/RestoreState macros
+;;   - C64 Elite (github.com/markmoxon/elite-source-code-commodore-64)
+;;     Fully documented loader with VIC-II setup and sprite init
+;;   - c64lib (github.com/barryw/c64lib)
+;;     Pseudocommand-based sprite positioning with MSB handling
+;;
+;; License: all referenced projects are open source on GitHub
+
+VIC_BASE    = $d000
+IRQ_STATUS  = $d019       ; VIC interrupt status/acknowledge
+IRQ_ENABLE  = $d01a       ; VIC interrupt enable
+RASTER_LINE = $d012       ; current raster line
+
+;; ============================================================
+;; Pattern 1: KERNAL chain (cracktro / intro pattern)  ★ RECOMMENDED
+;; ============================================================
+;;
+;; Do your per-frame work, then jmp $ea31 to let KERNAL handle
+;; register save/restore, keyboard scan, jiffy clock, STOP key.
+;; Used by countless intros, demos, and cracktros.
+;; This is the SAFEST pattern — KERNAL handles everything RTI.
+;;
+;; irq:
+;;     lda #$01
+;;     sta IRQ_STATUS    ; ack VIC interrupt
+;;     inc frame_ready   ; signal main loop
+;;     jmp $ea31         ; chain to KERNAL ($ea31 saves A/X/Y,
+;;                        ; handles keyboard/jiffy, does RTI)
+
+;; ============================================================
+;; Pattern 2: Burger Time / c64lib custom ISR
+;; ============================================================
+;;
+;; Fully custom handler with explicit save/restore.  Used when
+;; you must avoid KERNAL zero-page ($90-$FF).  Demands perfect
+;; stack balance: 3 pushes + CPU 3 pushes = 3 pops + 3 RTI pops.
+;;
+;; irq:
+;;     pha               ; save A
+;;     txa
+;;     pha               ; save X
+;;     tya
+;;     pha               ; save Y
+;;     lda #$01
+;;     sta IRQ_STATUS    ; ack VIC
+;;     inc frame_ready   ; our work
+;;     ;; ... more work here if needed ...
+;;     pla
+;;     tay              ; restore Y
+;;     pla
+;;     tax              ; restore X
+;;     pla               ; restore A
+;;     rti              ; RTI pops CPU's saved P,PCL,PCH
+
+;; ============================================================
+;; Pattern 3: Burger Time nested IRQs (split-screen)
+;; ============================================================
+;;
+;; Multiple IRQ handlers chained via raster line changes.
+;; Used for raster bars, split-screen, sprite multiplexing.
+;;
+;; MainIRQ:          ; raster line 255
+;;     StoreState()
+;;     ;; top-of-frame work
+;;     lda #<CopyIRQ
+;;     sta $0314
+;;     lda #>CopyIRQ
+;;     sta $0315
+;;     lda #20
+;;     sta RASTER_LINE
+;;     RestoreState()
+;;     rti
+;;
+;; CopyIRQ:          ; raster line 20
+;;     StoreState()
+;;     ;; sprite copy, mid-frame work
+;;     lda #<MainIRQ
+;;     sta $0314
+;;     lda #>MainIRQ
+;;     sta $0315
+;;     lda #255
+;;     sta RASTER_LINE
+;;     RestoreState()
+;;     rti
+
+;; ============================================================
+;; Pattern 4: Elite loader VIC-II init sequence
+;; ============================================================
+;;
+;; From the C64 Elite loader — canonical VIC-II setup pattern:
+;;
+;;     sei                    ; disable interrupts
+;;     lda $dd02              ; set CIA2 port A to output
+;;     ora #%00000011
+;;     sta $dd02
+;;     lda $dd00              ; select VIC bank
+;;     and #%11111100
+;;     ora #bank
+;;     sta $dd00
+;;     lda #$81               ; set screen/charset pointers
+;;     sta $d018              ;   ($D018 = screen<<4 | charset)
+;;     lda #0
+;;     sta $d020              ; border black
+;;     sta $d021              ; background black
+;;     lda #%00111011         ; screen control: bitmap, 25 rows, on
+;;     sta $d011
+;;     lda #%11000000         ; screen control 2: 38 cols
+;;     sta $d016
+;;     lda #%00000000         ; disable all sprites
+;;     sta $d015
+;;     lda #<irq_handler
+;;     sta $0314
+;;     lda #>irq_handler
+;;     sta $0315
+;;     lda #$01
+;;     sta $d01a              ; enable raster IRQ
+;;     lda #0
+;;     sta $d012              ; raster line 0
+;;     cli
+;;     jmp main_loop

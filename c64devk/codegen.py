@@ -179,16 +179,7 @@ def _emit_sprite_memory_setup(spec: "ProjectSpec", lines: list[str]) -> None:
 
 def _emit_irq_handler(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("irq:")
-    lines.append("\tlda $d019")
-    lines.append("\tsta $d019")
-    lines.append("\tlda $dc0d")
-    lines.append("\tinc frame_ready")
-    lines.append("\tpla")
-    lines.append("\ttay")
-    lines.append("\tpla")
-    lines.append("\ttax")
-    lines.append("\tpla")
-    lines.append("\trti")
+    lines.append("\t+c64_irq_chain_kernal")
     lines.append("")
 
 

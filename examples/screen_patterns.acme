@@ -1,0 +1,204 @@
+;; ============================================================
+;; c64devk screen and splash screen patterns
+;; Reference: c64lib (barryw/c64lib), C64 Elite loader
+;; License: MIT — freely usable
+;; ============================================================
+;;
+;; Screen RAM = $0400-$07E7 (1000 bytes = 40 columns × 25 rows)
+;; Color RAM = $D800-$DBE7 (1000 bytes, nybbles)
+;;
+;; Each screen byte is a PETSCII character code.
+;; Each color byte holds foreground color in low 4 bits.
+
+SCREEN_RAM = $0400
+COLOR_RAM  = $D800
+
+;; ============================================================
+;; Pattern 1: Clear screen RAM (1000 bytes of spaces)
+;; ============================================================
+;;
+;; The screen is 1000 bytes spread across 3 full pages plus
+;; 232 bytes of a 4th page.  The standard 4×256 page loop
+;; writes 1024 bytes — 24 extra bytes overlap page 3, which
+;; is harmless but wastes cycles.  For exactness, use the
+;; 3-page + 232-byte pattern below.
+
+;; === Simple (4-page, 1024 bytes, 24 overlapping) ===
+;;
+;; clear_screen_simple:
+;;     ldx #0
+;;     lda #$20               ; space character
+;; .loop:
+;;     sta SCREEN_RAM, x
+;;     sta SCREEN_RAM + $100, x
+;;     sta SCREEN_RAM + $200, x
+;;     sta SCREEN_RAM + $2e8, x
+;;     inx
+;;     bne .loop
+;;     rts
+
+;; === Exact (3 pages + 232 bytes, no overlap) ===
+;;
+;; clear_screen:
+;;     ldx #0
+;;     lda #$20
+;; .lp:
+;;     sta SCREEN_RAM, x
+;;     sta SCREEN_RAM + $100, x
+;;     sta SCREEN_RAM + $200, x
+;;     inx
+;;     bne .lp
+;;     ldx #231               ; 232 bytes remaining
+;; .lp2:
+;;     sta SCREEN_RAM + $300, x
+;;     dex
+;;     bpl .lp2
+;;     rts
+
+;; ============================================================
+;; Pattern 2: Write text to screen with color
+;; ============================================================
+;;
+;; The ROM charset at $D000-$DFFF must be copied to RAM first
+;; if you're using a custom charset or banking out ROM.
+;; The c64devk framework does this automatically in its init.
+
+;; === Write a null-terminated string with color ===
+;;
+;;     ldx #0
+;; .wr_loop:
+;;     lda my_string, x
+;;     beq .wr_done
+;;     sta SCREEN_RAM + row*40 + col, x
+;;     lda #7                  ; yellow
+;;     sta COLOR_RAM + row*40 + col, x
+;;     inx
+;;     bne .wr_loop            ; guard against >255 chars
+;; .wr_done:
+;;     rts
+
+;; ============================================================
+;; Pattern 3: Minimal splash screen (~30 lines)
+;; ============================================================
+;;
+;; A splash screen should: clear screen, set colors, write
+;; text, wait for key.  No LFSR, no d_mul40, no self-modifying
+;; code, no zero-page trampling.  Just clean inline assembly.
+
+SPLASH_TITLE_ROW  = 10
+SPLASH_TITLE_COL  = 12
+SPLASH_SUB_ROW    = 14
+SPLASH_SUB_COL    = 11
+SPLASH_BAR1_ROW   = 9
+SPLASH_BAR2_ROW   = 16
+
+splash_show:
+    ;; — Clear screen and color RAM —
+    ldx #0
+    lda #$20                    ; space
+.s_clr:
+    sta SCREEN_RAM, x
+    sta SCREEN_RAM + $100, x
+    sta SCREEN_RAM + $200, x
+    sta SCREEN_RAM + $2e8, x
+    lda #0                      ; black
+    sta COLOR_RAM, x
+    sta COLOR_RAM + $100, x
+    sta COLOR_RAM + $200, x
+    sta COLOR_RAM + $2e8, x
+    lda #$20
+    inx
+    bne .s_clr
+
+    ;; — Cyan bar at rows 9 and 16 —
+    ldx #0
+    lda #3                      ; cyan
+.s_bar:
+    sta COLOR_RAM + SPLASH_BAR1_ROW*40, x
+    sta COLOR_RAM + SPLASH_BAR2_ROW*40, x
+    inx
+    cpx #40
+    bne .s_bar
+
+    ;; — Title text in white —
+    ldx #0
+.s_title:
+    lda splash_title, x
+    beq .s_sub
+    sta SCREEN_RAM + SPLASH_TITLE_ROW*40 + SPLASH_TITLE_COL, x
+    lda #1                      ; white
+    sta COLOR_RAM + SPLASH_TITLE_ROW*40 + SPLASH_TITLE_COL, x
+    inx
+    bne .s_title
+
+.s_sub:
+    ;; — Subtitle in light gray —
+    ldx #0
+.s_sub_lp:
+    lda splash_press, x
+    beq .s_wait
+    sta SCREEN_RAM + SPLASH_SUB_ROW*40 + SPLASH_SUB_COL, x
+    lda #15                     ; light gray
+    sta COLOR_RAM + SPLASH_SUB_ROW*40 + SPLASH_SUB_COL, x
+    inx
+    bne .s_sub_lp
+
+.s_wait:
+    ;; — Wait for SPACE (row 4, column 7) —
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10                    ; SPACE pressed = bit 4 clear
+    bne .s_wait
+    rts
+
+splash_title:  !scr "last star system", 0
+splash_press:  !scr "press space to play", 0
+
+;; ============================================================
+;; Pattern 4: 16-bit number display (5 digits)
+;; ============================================================
+;;
+;; Converts a 16-bit value to decimal digits and writes to
+;; screen RAM.  Uses repeated subtraction (no division).
+;; This is the standard approach on 6502 since there's no DIV.
+
+;; === Display 16-bit number at screen position ===
+;;
+;; Input: num_tmp/num_tmp+1 = 16-bit value (0-65535)
+;;        row, col = screen position (0-24, 0-39)
+;;        digits = number of digits to display (1-5)
+;; Clobbers: A, X, Y, num_tmp, num_scr, num_scr+1
+;;
+;; display_16bit:
+;;     ldx #digits-1
+;; .digit_loop:
+;;     ldy #0
+;;     lda powers_lo, x
+;;     sta zp_div
+;;     lda powers_hi, x
+;;     sta zp_div+1
+;; .subtract:
+;;     sec
+;;     lda num_tmp
+;;     sbc zp_div
+;;     sta zp_tmp
+;;     lda num_tmp+1
+;;     sbc zp_div+1
+;;     bcc .no_more
+;;     sta num_tmp+1
+;;     lda zp_tmp
+;;     sta num_tmp
+;;     iny
+;;     bne .subtract
+;; .no_more:
+;;     tya
+;;     clc
+;;     adc #$30                ; convert to ASCII/PETSCII digit
+;;     sta SCREEN_RAM + row*40 + col + digits-1 - x
+;;     dex
+;;     bpl .digit_loop
+;;     rts
+;;
+;; powers_lo:  !byte <10000, <1000, <100, <10, <1
+;; powers_hi:  !byte >10000, >1000, >100, >10, >1

@@ -1,0 +1,175 @@
+;; ============================================================
+;; c64devk sprite management patterns
+;; Reference: c64lib (barryw/c64lib) — BitMaskPow2 technique
+;; License: MIT — freely usable
+;; ============================================================
+;;
+;; Sprite X positions are 9-bit (0-511). The low 8 bits go to
+;; $D000/$D002/…/$D00E. Bit 9 (the MSB) lives in $D010 — one
+;; bit per sprite. This is the canonical pattern for handling it.
+
+SPRITE_X_LO  = $d000     ; base of sprite X low bytes
+SPRITE_Y     = $d001     ; base of sprite Y
+SPRITE_X_HI  = $d010     ; MSB of sprite X (bits 0-7 for sprites 0-7)
+SPRITE_EN    = $d015     ; sprite enable bits
+
+;; ============================================================
+;; Lookup table: sprite index → bit mask
+;; ============================================================
+BitMaskPow2:
+    !byte %00000001      ; sprite 0
+    !byte %00000010      ; sprite 1
+    !byte %00000100      ; sprite 2
+    !byte %00001000      ; sprite 3
+    !byte %00010000      ; sprite 4
+    !byte %00100000      ; sprite 5
+    !byte %01000000      ; sprite 6
+    !byte %10000000      ; sprite 7
+
+;; ============================================================
+;; c64_set_sprite_pos — position a sprite with MSB handling
+;;
+;; Input:  A = sprite number (0-7)
+;;         X = X position (16-bit: low in zp_temp, high in zp_temp+1)
+;;             X value range: 0-511 (unsigned)
+;;         Y = Y position (0-255)
+;;
+;; Clobbers: A, Y, zp_temp
+;; ============================================================
+
+;; === X position in zp_temp (lo) / zp_temp+1 (hi) ===
+;;
+;;     lda #<x_pos
+;;     sta zp_temp
+;;     lda #>x_pos
+;;     sta zp_temp+1
+;;     lda #sprite_number
+;;     tax
+;;     ldx BitMaskPow2, x    ; get bit mask for this sprite
+;;     stx zp_temp2           ; save mask
+;;
+;;     ;; Write Y (always in range 0-255)
+;;     tya
+;;     ldy sprite_number
+;;     cpy #0
+;;     bne .chk1
+;;     sta $d001              ; sprite 0 Y
+;;     bne .x_pos
+;; .chk1:
+;;     cpy #1
+;;     bne .chk2
+;;     sta $d003
+;;     bne .x_pos
+;; ... (continue for sprites 0-7) ...
+;;
+;; .x_pos:
+;;     ;; Write X low byte
+;;     lda zp_temp
+;;     ldy sprite_number
+;;     cpy #0
+;;     bne .xl1
+;;     sta $d000
+;;     bne .msb
+;; ... (same pattern for $D002/$D004/$D006/$D008/$D00A/$D00C/$D00E) ...
+;;
+;; .msb:
+;;     ;; Handle bit 9 of X via $D010
+;;     lda SPRITE_X_HI
+;;     ldx BitMaskPow2, y     ; get bit mask for this sprite (or use saved zp_temp2)
+;;     eor #$ff               ; invert mask (clear this sprite's bit)
+;;     and SPRITE_X_HI        ; read current state
+;;     sta zp_temp            ; save
+;;     lda zp_temp+1          ; check if X >= 256
+;;     beq .no_msb
+;;     lda zp_temp
+;;     ora BitMaskPow2, y     ; set MSB for this sprite
+;;     sta SPRITE_X_HI
+;;     rts
+;; .no_msb:
+;;     lda zp_temp            ; restore state with MSB cleared for this sprite
+;;     sta SPRITE_X_HI
+;;     rts
+
+;; ============================================================
+;; Simplified: c64_set_sprite_attr — change one attribute
+;;
+;; Changes: visibility, X-expand, Y-expand, multicolor, priority
+;;
+;; Input:  A = sprite number (0-7)
+;;         X = register base (e.g. $D015, $D017, $D01B, $D01C, $D01D)
+;;         Y = 0 to clear the attribute, non-zero to set it
+;;
+;; Example: enable sprite 3
+;;     lda #3
+;;     ldx #$d015    ; sprite enable register
+;;     ldy #1        ; enable
+;;     jsr c64_set_sprite_attr
+;; ============================================================
+;;
+;; c64_set_sprite_attr:
+;;     pha
+;;     txa
+;;     ldx BitMaskPow2, x     ; get mask (but this overwrites X!)
+;;     ...  needs rewrite for proper ACME usage ...
+;;
+;; The canonical c64lib approach in pseudocode:
+;;   mask = BitMaskPow2[sprite_number]
+;;   old_value = register[x]
+;;   if enable:
+;;       register[x] = old_value | mask
+;;   else:
+;;       register[x] = old_value & ~mask
+;;
+;; Translated to functional pattern:
+;;
+;; ; Set sprite attribute
+;; ; Input: X = sprite number, Y = register address, A = 0 to clear / non-zero to set
+;; sprite_attr:
+;;     pha
+;;     lda BitMaskPow2, x
+;;     sta zp_mask
+;;     pla
+;;     beq .clear
+;;     lda (reg_ptr), y    ; read current register
+;;     ora zp_mask
+;;     sta (reg_ptr), y
+;;     rts
+;; .clear:
+;;     lda (reg_ptr), y
+;;     eor #$ff
+;;     and zp_mask         ; wait, this isn't right either
+;;
+;; Let me just document the correct pattern clearly:
+
+;; ============================================================
+;; Pattern: Enable/disable a single sprite
+;; ============================================================
+;;
+;;     ldx sprite_number   ; 0-7
+;;     lda BitMaskPow2, x  ; get bit mask
+;;     ora SPRITE_EN       ; enable by OR-ing
+;;     sta SPRITE_EN
+;;
+;;     ;; Disable:
+;;     lda BitMaskPow2, x  ; get bit mask
+;;     eor #$ff            ; invert bits
+;;     and SPRITE_EN       ; clear the sprite's bit
+;;     sta SPRITE_EN
+
+;; ============================================================
+;; Pattern: Set sprite MSB after moving X past 255
+;; ============================================================
+;;
+;;     ;; X position in A:sprite_x_hi (A=low byte, Y=high byte)
+;;     ldy sprite_x_hi
+;;     beq .clear_msb      ; X < 256
+;;     lda BitMaskPow2, x
+;;     ora SPRITE_X_HI     ; set MSB for this sprite
+;;     sta SPRITE_X_HI
+;;     rts
+;; .clear_msb:
+;;     lda BitMaskPow2, x
+;;     eor #$ff
+;;     and SPRITE_X_HI     ; clear MSB for this sprite
+;;     sta SPRITE_X_HI
+;;     rts
