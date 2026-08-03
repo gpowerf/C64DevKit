@@ -1726,12 +1726,24 @@ do_splash:
     bne .ds_wait
     inc splash_done
     jsr draw_splash
+    ;; Fall through to splash frame loop — we own the frame now,
+    ;; main_loop's behaviors_update never runs during splash.
+
 .ds_wait:
+    ;; Frame sync — own wait loop, bypassing main_loop entirely
+    ;; so behaviors_update never runs during splash.
+    lda frame_ready
+    beq .ds_wait
+    lda #0
+    sta frame_ready
+
+    ;; Check SPACE to start
     lda #$7f
     sta $dc00
     lda $dc01
     and #$10             ; SPACE to start
-    bne .ds_rts
+    bne .ds_wait         ; loop back — never returns to main_loop
+
     lda #0
     sta init_done         ; force do_init to re-run (overwrites splash with game screen)
     lda #$03             ; enable sprites 0+1
