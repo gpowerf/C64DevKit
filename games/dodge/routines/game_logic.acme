@@ -1737,6 +1737,9 @@ do_splash:
     lda #0
     sta frame_ready
 
+    ;; DMZ-style side bars: shimmer columns 0-5 and 34-39
+    jsr splash_bars
+
     ;; Check SPACE to start
     lda #$7f
     sta $dc00
@@ -1753,33 +1756,82 @@ do_splash:
 .ds_rts:
     rts
 
+;; ============================================================
+;; Splash side bars — DMZ-style shimmer on left and right edges
+;; ============================================================
+splash_bars:
+    dec spl_tmr
+    bne .sb_done
+    lda #3
+    sta spl_tmr           ; refresh every 3rd frame
+
+    lda #0
+    sta spl_row
+.sb_row:
+    lda spl_row
+    jsr d_mul40           ; $57/$58 = row * 40
+    clc
+    lda $57
+    adc #<$d800           ; color RAM base
+    sta $57
+    lda $58
+    adc #>$d800
+    sta $58
+
+    ;; Left bar: columns 0-5
+    ldy #5
+.sb_l:
+    jsr lfsr_tick
+    and #$0F
+    sta ($57), y
+    dey
+    bpl .sb_l
+
+    ;; Right bar: columns 34-39
+    ldy #39
+.sb_r:
+    jsr lfsr_tick
+    and #$0F
+    sta ($57), y
+    dey
+    cpy #33
+    bne .sb_r
+
+    inc spl_row
+    lda spl_row
+    cmp #25
+    bne .sb_row
+.sb_done:
+    rts
+
+spl_tmr:  !byte 1        ; countdown to next refresh
+spl_row:  !byte 0        ; current row index
+
 draw_splash:
-    ;; Clear screen with spaces + black background
+    ;; Fill screen: solid blocks with black foreground (columns 6-33
+    ;; stay black; side bars at 0-5 and 34-39 overwritten with
+    ;; DMZ-style shimmer by splash_bars)
     ldx #0
-    lda #$20
+    lda #$a0
 .s_clr:
     sta $0400, x
     sta $0500, x
     sta $0600, x
     sta $06e8, x
+    inx
+    bne .s_clr
+
+    ;; Color RAM: all black — bars at 0-5 and 34-39 overwritten each
+    ;; frame by splash_bars, middle stays black for text.
+    ldx #0
     lda #0
+.s_col:
     sta $d800, x
     sta $d900, x
     sta $da00, x
     sta $dae8, x
-    lda #$20
     inx
-    bne .s_clr
-
-    ;; Cyan bars at row 9 and 16
-    ldx #0
-    lda #3
-.s_bar:
-    sta $d800+9*40, x
-    sta $d800+16*40, x
-    inx
-    cpx #40
-    bne .s_bar
+    bne .s_col
 
     ;; Title in white at row 10, col 12
     ldx #0
