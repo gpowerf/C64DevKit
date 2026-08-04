@@ -10,6 +10,17 @@ if TYPE_CHECKING:
     from .spec_parser import ProjectSpec, Action
 
 
+def _is_variable_ref(value) -> str | None:
+    """Return the label name if value is a variable reference (non-numeric string), else None."""
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    # A variable reference starts with a letter or underscore
+    if stripped and (stripped[0].isalpha() or stripped[0] == '_'):
+        return stripped
+    return None
+
+
 def _compute_init_addr(code_start: int) -> int:
     base = code_start + 8
     target = base + len(str(base))
@@ -190,12 +201,25 @@ def _emit_variables(lines: list[str]) -> None:
     lines.append("frame_ready:\t!byte 0")
     lines.append("joystick_state:\t!byte 0")
     lines.append("joystick_prev:\t!byte 0")
+    lines.append("random:\t!byte $5A")
     lines.append("")
 
 
 def _emit_main_loop(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("main_loop:")
     lines.append("\t+c64_wait_frame")
+    lines.append("")
+    lines.append("\t;; Advance RNG (polynomial $B8)")
+    lines.append("\tlda random")
+    lines.append("\tlsr")
+    lines.append("\tbcc .rn_ok")
+    lines.append("\teor #$B8")
+    lines.append(".rn_ok:")
+    lines.append("\tsta random")
+    lines.append("\tbne .rn_done")
+    lines.append("\tlda #$5A")
+    lines.append("\tsta random")
+    lines.append(".rn_done:")
     lines.append("")
     lines.append("\tjsr read_joystick")
     lines.append("\tjsr game_logic")
@@ -354,6 +378,7 @@ def _emit_behavior_variables(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("frame_ready:\t!byte 0")
     lines.append("joystick_state:\t!byte 0")
     lines.append("joystick_prev:\t!byte 0")
+    lines.append("random:\t!byte $5A")
     if _behaviors_need_score(spec):
         lines.append("score:\t!byte 0, 0")
     if _behaviors_need_sound(spec):
@@ -369,6 +394,19 @@ def _emit_behavior_variables(spec: "ProjectSpec", lines: list[str]) -> None:
 def _emit_behavior_main_loop(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("main_loop:")
     lines.append("\t+c64_wait_frame")
+    lines.append("")
+    # RNG tick — Galois LFSR with polynomial $B8 (independent of user code)
+    lines.append("\t;; Advance RNG (polynomial $B8)")
+    lines.append("\tlda random")
+    lines.append("\tlsr")
+    lines.append("\tbcc .rn_ok")
+    lines.append("\teor #$B8")
+    lines.append(".rn_ok:")
+    lines.append("\tsta random")
+    lines.append("\tbne .rn_done")
+    lines.append("\tlda #$5A")
+    lines.append("\tsta random")
+    lines.append(".rn_done:")
     lines.append("")
     if _behaviors_need_joystick(spec):
         lines.append("\t;; Read joystick")
@@ -523,24 +561,35 @@ def _emit_action_set_sprite_pos(spec: "ProjectSpec", action: "Action", lines: li
     ix_lo = 0xD000 + idx * 2
     ix_hi = 0xD001 + idx * 2
 
-    if isinstance(x, str):
-        x = _parse_int(x)
-    if isinstance(y, str):
-        y = _parse_int(y)
+    x_var = _is_variable_ref(x)
+    y_var = _is_variable_ref(y)
 
-    lines.append(f"\tlda #<{x}")
+    if not x_var:
+        if isinstance(x, str):
+            x = _parse_int(x)
+        lines.append(f"\tlda #<{x}")
+    else:
+        lines.append(f"\tlda {x}")
     lines.append(f"\tsta ${ix_lo:04X}")
-    lines.append(f"\tlda #<{y}")
+
+    if not y_var:
+        if isinstance(y, str):
+            y = _parse_int(y)
+        lines.append(f"\tlda #<{y}")
+    else:
+        lines.append(f"\tlda {y}")
     lines.append(f"\tsta ${ix_hi:04X}")
 
-    if x > 255:
-        lines.append(f"\tlda $d010")
-        lines.append(f"\tora #${1 << idx:02X}")
-        lines.append(f"\tsta $d010")
-    else:
-        lines.append(f"\tlda $d010")
-        lines.append(f"\tand #${(~(1 << idx)) & 0xFF:02X}")
-        lines.append(f"\tsta $d010")
+    # MSB handling — only for literals (variables manage MSB externally)
+    if not x_var:
+        if x > 255:
+            lines.append(f"\tlda $d010")
+            lines.append(f"\tora #${1 << idx:02X}")
+            lines.append(f"\tsta $d010")
+        else:
+            lines.append(f"\tlda $d010")
+            lines.append(f"\tand #${(~(1 << idx)) & 0xFF:02X}")
+            lines.append(f"\tsta $d010")
 
 
 def _emit_action_inc_score(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: list[int]) -> None:

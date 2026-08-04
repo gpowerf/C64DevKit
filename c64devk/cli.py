@@ -161,6 +161,13 @@ def cmd_build(project_path: str) -> None:
     else:
         print(f"Build failed:")
         print(result.stderr or result.stdout)
+        if "Target out of range" in (result.stderr or result.stdout):
+            print("")
+            print("Tip: 6502 branches can only reach -128/+127 bytes.")
+            print('Replace "bxx .far_label" with:')
+            print('    b!xx .skip    ; inverted condition')
+            print('    jmp .far_label')
+            print('    .skip:')
         sys.exit(1)
 
 

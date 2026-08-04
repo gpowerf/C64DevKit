@@ -185,12 +185,19 @@ Generates UP/DOWN/LEFT/RIGHT checks and increments/decrements the sprite's VIC-I
 
 **`set_sprite_pos`** — absolute sprite positioning
 ```yaml
+# Literal positions (handles MSB automatically):
 - set_sprite_pos:
     sprite: player
     x: 160
     y: 120
+
+# Variable positions (reads from labels — no MSB handling):
+- set_sprite_pos:
+    sprite: radar
+    x: ast_warn_x
+    y: ast_warn_y
 ```
-Sets the sprite to an absolute position. Handles MSB of X ($D010) automatically. Used in collision handlers to reset position.
+Sets the sprite to an absolute position. When `x`/`y` are numeric, generates `lda #<value`. When they're strings starting with a letter, generates `lda label` (absolute read from that address). Numeric values get automatic MSB ($D010) handling; variable references do not (manage MSB externally).
 
 **`inc_score`** — modify 16-bit score
 ```yaml
@@ -523,7 +530,7 @@ $0801         BASIC SYS header (12-13 bytes)
 $080D         jmp init
 $0810         init: (screen config, IRQ setup, VIC bank, sprite pointers)
               irq: (raster IRQ handler)
-              Variables (3 bytes)
+              Variables ($0C00, 4+ bytes: frame_ready, joystick_state, joystick_prev, random)
               main_loop: (frame sync, input, logic, sprite update)
               init_sprites: (sprite position/color/enable)
               read_joystick: (read $DC00)
@@ -537,8 +544,9 @@ $2000         Sprite data (64 bytes/sprite, filled or from .spr files)
 - `frame_ready` — byte, set to 1 each raster frame by IRQ handler
 - `joystick_state` — byte, joystick port 2 state (active high)
 - `joystick_prev` — byte, previous frame's joystick state
+- `random` — byte, advanced every frame by a Galois LFSR (polynomial $B8). Use `lda random` for a fresh random value each frame. Independent of user code — safe to use from routines without affecting DMZ or other systems.
 
-These are at labels following the IRQ handler code, so their exact address depends on the code size. Accessible by name in ACME.
+These are at labels in the fixed variable block at `$0C00`. Accessible by name in ACME.
 
 ---
 
@@ -926,7 +934,7 @@ test report
 
 6. **No raster splits**: The IRQ handler fires at raster line 0 only. Custom raster interrupts must be implemented manually.
 
-7. **Variable placement is fragile**: `frame_ready`, `joystick_state`, and `joystick_prev` are placed immediately after the IRQ handler code. Adding significant code in `init:` could shift these addresses. Prefer explicit `* =` directives for critical data.
+7. **Variable placement is fixed**: `frame_ready`, `joystick_state`, `joystick_prev`, and `random` are placed at $0C00 via `* = $0C00`. Additional code in `init:` does not affect their addresses.
 
 8. **X position limited to 255 outside behavior DSL**: The non-behavior `update_sprites:` routine uses `inc $d000`/`dec $d000` for X movement, which doesn't handle the $D010 MSB correctly. The behavior DSL's `set_sprite_pos` and `update_sprite` handle MSB correctly.
 
@@ -1212,7 +1220,19 @@ Modify the framework itself:
 ### Common 6502 assembly gotchas
 
 - **No 16-bit operations**: You must handle 16-bit math with `ADC`/`SBC` chains
-- **Branch range limited**: Branches only reach -128 to +127 bytes; use `JMP` for longer jumps
+- **Branch range limited**: Branches only reach -128 to +127 bytes; use `JMP` for longer jumps.
+
+  When adding code to a routine, existing branches may suddenly be out of range. The fix is a trampoline:
+  ```asm
+  ; Before (broken):
+      bne .far_label
+
+  ; After (fixed):
+      beq .skip           ; invert condition, branch to nearby jmp
+      jmp .far_label
+  .skip:
+  ```
+  The build output now includes this tip when ACME reports "Target out of range".
 - **X vs Y indexing**: `LDA $2000,X` uses X; `LDA ($02),Y` uses Y. They're not interchangeable
 - **Stack depth**: Only 256 bytes of stack; recursion is impractical
 - **No multiplication/division**: Use lookup tables or shift-add loops
@@ -1441,23 +1461,43 @@ subtract_from_score:
     rts
 ```
 
-### Pseudo-random number (using raster line)
+### Pseudo-random number (using framework `random` variable)
+
+The framework provides a `random` byte advanced each frame by an independent Galois LFSR.
+Just use `lda random` — no setup, no conflicts with DMZ or other systems.
 
 ```asm
-; Returns random-ish byte in A. Uses VIC-II raster counter ($D012)
-; which cycles 0-311 every frame.
+; Use the framework random variable directly
+    lda random
+    and #$0F                ; 0-15
+    sta my_value
+```
+
+For range-bounded random (e.g. 40-167):
+```asm
+    lda random
+    and #$7F                ; 0-127
+    clc
+    adc #40                 ; 40-167
+    rts
+```
+
+### Pseudo-random number (manual, using raster line)
+
+As an alternative to the framework `random` variable, you can roll your own:
+```asm
+; Returns random-ish byte in A.
 get_random:
     lda $d012               ; raster line (changes rapidly)
     eor $dc04               ; CIA1 timer A lo (free-running)
-    adc frame_ready         ; frame flag
     rts
 
-; Get random position in range 24-231 for X
+; Get random position in range 40-167 for X
 random_x:
     jsr get_random
     and #$7F                ; 0-127
     clc
-    adc #50                 ; 50-177
+    adc #40                 ; 40-167
     rts
 ```
 
