@@ -1274,12 +1274,13 @@ ast_update:
     bcs .despawn
 
 .ds_xchk:
-    ;; Check X despawn — prevents dy=0 asteroids from living forever
+    ;; Check X despawn — only left edge needed (right-edge asteroids
+    ;; will hit Y bounds if dy≠0, or reach X<8 if moving left with dy=0)
     lda ast_x, x
     cmp #8
     bcc .despawn
-    cmp #248
-    bcc .mv_nx
+
+    jmp .mv_nx
 
 .despawn:
     lda ast_active
@@ -1471,11 +1472,6 @@ radar_do:
     cmp #255
     beq .r_hide
 
-    ;; Clear sprite 5 MSB (default: X < 256)
-    lda $d010
-    and #$DF
-    sta $d010
-
     lda ast_warn_dir
     beq .r_bot
     cmp #1
@@ -1491,11 +1487,8 @@ radar_do:
     bne .r_ena
 
 .r_rgt:
-    ;; RIGHT edge: pin X=280 (256+24), exact Y
-    lda $d010
-    ora #$20
-    sta $d010
-    lda #24
+    ;; RIGHT edge: pin X=240 (just before DMZ), exact Y
+    lda #230
     sta $d00a
     lda ast_warn_y
     sta $d00b
@@ -1523,9 +1516,6 @@ radar_do:
     rts
 
 .r_hide:
-    lda $d010
-    and #$DF
-    sta $d010
     lda $d015
     and #$DF
     sta $d015
