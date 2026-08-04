@@ -133,6 +133,8 @@ class Action:
             if isinstance(value, str):
                 return {"variable": value}
             return value
+        elif action_type in ("enable_sprite", "disable_sprite"):
+            return {"sprite": str(value)}
         else:
             return {"value": value}
 
@@ -143,6 +145,8 @@ class BehaviorDef:
     type: str
     actions: list[Action] = field(default_factory=list)
     collision_sprites: list[str] = field(default_factory=list)
+    timer_every: int = 0           # for on_timer
+    collision_cooldown: int = 0    # for on_collision
 
     @classmethod
     def from_dict(cls, d: dict) -> "BehaviorDef":
@@ -162,6 +166,8 @@ class BehaviorDef:
             type=btype,
             actions=parsed,
             collision_sprites=list(sprites) if sprites else [],
+            timer_every=d.get("every", 0),
+            collision_cooldown=d.get("cooldown", 0),
         )
 
 

@@ -65,6 +65,13 @@ def _emit_header(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append(f";; DO NOT EDIT — modify spec files instead")
     lines.append("")
     lines.append(f'!source "macros/c64devk.acme"')
+    # Emit free sprite constant for routines
+    used = {s.index for s in spec.sprites}
+    nxt = 0
+    while nxt < 8 and nxt in used:
+        nxt += 1
+    lines.append(f";; Sprite indices {used} in use by DSL, next free: {nxt}")
+    lines.append(f"NEXT_FREE_SPRITE = {nxt}")
     lines.append("")
 
 
@@ -354,6 +361,10 @@ def _behaviors_need_text(spec: "ProjectSpec") -> bool:
     return False
 
 
+def _behaviors_need_cooldown(spec: "ProjectSpec") -> bool:
+    return any(b.type == "on_collision" and b.collision_cooldown > 0 for b in spec.behaviors)
+
+
 def _behaviors_need_numbers(spec: "ProjectSpec") -> bool:
     for b in spec.behaviors:
         for a in b.actions:
@@ -388,6 +399,11 @@ def _emit_behavior_variables(spec: "ProjectSpec", lines: list[str]) -> None:
     if _behaviors_need_numbers(spec):
         lines.append("num_tmp:\t!byte 0, 0")
         lines.append("num_scr:\t!byte 0")
+    if any(b.type == "on_collision" and b.collision_cooldown > 0 for b in spec.behaviors):
+        lines.append("collision_timer:\t!byte 0")
+    for b in spec.behaviors:
+        if b.type == "on_timer" and b.timer_every > 0:
+            lines.append(f"beh_timer_{_safe_label(b.name)}:\t!byte {b.timer_every}")
     lines.append("")
 
 
@@ -408,6 +424,13 @@ def _emit_behavior_main_loop(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("\tsta random")
     lines.append(".rn_done:")
     lines.append("")
+    if _behaviors_need_cooldown(spec):
+        lines.append("\t;; Collision cooldown decrement")
+        lines.append("\tlda collision_timer")
+        lines.append("\tbeq .col_done")
+        lines.append("\tdec collision_timer")
+        lines.append(".col_done:")
+        lines.append("")
     if _behaviors_need_joystick(spec):
         lines.append("\t;; Read joystick")
         lines.append("\tlda $dc00")
@@ -428,6 +451,18 @@ def _emit_behavior_main_loop(spec: "ProjectSpec", lines: list[str]) -> None:
 def _emit_behavior_frame(spec: "ProjectSpec", lines: list[str]) -> None:
     lines.append("behaviors_update:")
     cnt = _behavior_action_counter()
+
+    for b in spec.behaviors:
+        if b.type == "on_timer":
+            lines.append(f"\t;; Timer: {b.name} (every {b.timer_every} frames)")
+            lines.append(f"\tdec beh_timer_{_safe_label(b.name)}")
+            lines.append(f"\tbne .tm_{_safe_label(b.name)}_done")
+            lines.append(f"\tlda #{b.timer_every}")
+            lines.append(f"\tsta beh_timer_{_safe_label(b.name)}")
+            for a in b.actions:
+                _emit_action(spec, a, lines, cnt)
+            lines.append(f".tm_{_safe_label(b.name)}_done:")
+            lines.append("")
 
     for b in spec.behaviors:
         if b.type != "on_frame":
@@ -496,9 +531,17 @@ def _emit_collision_handlers(spec: "ProjectSpec", lines: list[str]) -> None:
 
     for b in collision_behaviors:
         lines.append(f"beh_handler_{_safe_label(b.name)}:")
+        if b.collision_cooldown > 0:
+            lines.append(f"\tlda collision_timer")
+            lines.append(f"\tbeq .cc_{_safe_label(b.name)}")
+            lines.append(f"\trts")
+            lines.append(f".cc_{_safe_label(b.name)}:")
         cnt = _behavior_action_counter()
         for a in b.actions:
             _emit_action(spec, a, lines, cnt)
+        if b.collision_cooldown > 0:
+            lines.append(f"\tlda #{b.collision_cooldown}")
+            lines.append(f"\tsta collision_timer")
         lines.append("\trts")
         lines.append("")
 
@@ -513,6 +556,8 @@ def _emit_action(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: l
         "check_collision": _emit_action_inline_collision,
         "display_text": _emit_action_display_text,
         "display_number": _emit_action_display_number,
+        "enable_sprite": _emit_action_enable_sprite,
+        "disable_sprite": _emit_action_disable_sprite,
     }
     emitter = action_emitters.get(action.type)
     if emitter:
@@ -767,6 +812,24 @@ def _emit_action_display_number(spec: "ProjectSpec", action: "Action", lines: li
             lines.append(f"\tsta ${color_addr + d:04X}")
 
     lines.append("")
+
+
+def _emit_action_enable_sprite(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: list[int]) -> None:
+    idx = _sprite_index_for(spec, action.params.get("sprite", ""))
+    if idx < 0:
+        return
+    lines.append(f"\tlda $d015")
+    lines.append(f"\tora #${1 << idx:02X}")
+    lines.append(f"\tsta $d015")
+
+
+def _emit_action_disable_sprite(spec: "ProjectSpec", action: "Action", lines: list[str], cnt: list[int]) -> None:
+    idx = _sprite_index_for(spec, action.params.get("sprite", ""))
+    if idx < 0:
+        return
+    lines.append(f"\tlda $d015")
+    lines.append(f"\tand #${(~(1 << idx)) & 0xFF:02X}")
+    lines.append(f"\tsta $d015")
 
 
 def _emit_sprite_init_behavior(spec: "ProjectSpec", lines: list[str]) -> None:

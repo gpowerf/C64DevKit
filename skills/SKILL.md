@@ -163,9 +163,13 @@ behaviors:
 |------|---------|---------|
 | `on_frame` | Every frame (50/60Hz) | Movement, input reading, continuous logic |
 | `on_collision` | Hardware sprite-sprite collision | Score, lives, reset position, effects |
+| `on_timer` | Every N frames (`every: N`) | Periodic actions — spawning, auto-fire, countdowns |
 | `on_input` | Joystick/keyboard event | (planned) Menu navigation, discrete actions |
 
 When multiple `on_collision` behaviors reference the same sprite pair, all their actions run together on collision. Collision bits are auto-cleared each frame.
+
+`on_collision` supports `cooldown: <frames>` to suppress re-triggering. After the handler fires, collision is ignored for that many frames.
+`on_timer` requires `every: <frames>` — the handler fires every N frames.
 
 #### Supported actions
 
@@ -231,6 +235,22 @@ Checks for collision between two sprites. If detected, acknowledges the collisio
     color: 7               # optional, 0-15
 ```
 Writes PETSCII text to the screen at the specified row/column. The ROM charset is automatically copied to RAM during init ($3800). **Use lowercase letters** — ACME's `!scr` directive converts lowercase ASCII to PETSCII screen codes (a→$01, b→$02, ..., z→$1A). Uppercase letters are passed through as-is and display as graphics characters. If `color` is specified, also sets the color RAM at the same position.
+
+**`enable_sprite`** — enable a sprite in $D015
+```yaml
+- enable_sprite: radar     # sprite name (references sprites.yaml)
+```
+
+**`disable_sprite`** — disable a sprite in $D015
+```yaml
+- disable_sprite: radar
+```
+Useful for showing/hiding indicators or deactivating sprites when they exit the screen.
+
+**`NEXT_FREE_SPRITE` constant** — available in routines as an ACME constant. The framework computes the first unused sprite index after all DSL-defined sprites. Use it to claim sprite slots from assembly:
+```asm
+    lda NEXT_FREE_SPRITE  ; 2 if sprites 0,1 are in sprites.yaml
+```
 
 ### Color Reference
 
@@ -539,6 +559,18 @@ $0810         init: (screen config, IRQ setup, VIC bank, sprite pointers)
 ...
 $2000         Sprite data (64 bytes/sprite, filled or from .spr files)
 ```
+
+### Zero-page usage
+
+The framework and generated code use these ZP bytes. All others ($02-$8F on a BASIC-free C64) are safe for routines.
+
+| ZP byte | Used by | Purpose |
+|---------|---------|---------|
+| `$57/$58` | `d_mul40`, `dmz_do`, generated display code | 16-bit work pointer (row×40, screen address math) |
+| `$59/$5A` | `radar_do` (user code pattern) | Color RAM pointer indirection |
+| `$FB-$FE` | KERNAL | Reserved — do not touch |
+
+The macro library and codegen do not use $02-$56 or $5B-$8F. Use those freely in `routines/`.
 
 ### Runtime variables
 - `frame_ready` — byte, set to 1 each raster frame by IRQ handler
