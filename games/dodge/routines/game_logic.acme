@@ -33,7 +33,7 @@ dmz_row:    !byte 1
 level:      !byte 1    ; difficulty level (1-5+)
 prev_k:     !byte 0    ; previous score/1000 threshold
 speed_div:  !byte 2    ; enemy speed divisor
-ast_timer:  !byte 30   ; countdown to next asteroid spawn
+ast_timer:  !byte 40   ; countdown to next asteroid spawn
 ast_active: !byte 0    ; bits 0-2: which asteroids are active
 ast_msb:    !byte 0    ; $D010 MSB bits for X >= 256
 ast_x:      !byte 24, 24, 24
@@ -43,6 +43,11 @@ ast_dy:     !byte 0, 0, 0
 ast_count:  !byte 0
 ast_vx:     !byte 0    ; temp during spawn
 ast_vy:     !byte 0
+ast_warn_dir: !byte 255 ; 0=bottom, 1=top, 2=right, 3=left, 255=none
+ast_next_vx:  !byte 0
+ast_next_vy:  !byte 0
+ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X
+ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
 c_saved:    !byte 0    ; saved $D01E for multi-check
 cheat_spc:  !byte $FF  ; previous SPACE state (edged)
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
@@ -70,6 +75,7 @@ g0:
     sta $07F8
     jsr level_update
     jsr ast_update
+    jsr radar_do
     lda state
     cmp #GAME_PLAYING
     bne g1
@@ -188,6 +194,15 @@ clr_col:
     sta $d005
     sta $d007
     sta $d009
+    ;; Init radar sprite 5 — pointer and color
+    lda #$86
+    sta $07FD
+    lda #7              ; yellow
+    sta $d02c
+    lda #0
+    sta $d00a
+    lda #250
+    sta $d00b
     rts
 
 ;; ============================================================
@@ -372,11 +387,16 @@ restart:
     sta prev_k
     lda #2
     sta speed_div
-    lda #30
+    lda #40
     sta ast_timer
     lda #0
     sta ast_active
     sta ast_msb
+    lda #255
+    sta ast_warn_dir
+    lda #0
+    sta ast_warn_x
+    sta ast_warn_y
     lda #0
     sta $d004
     sta $d006
@@ -782,6 +802,13 @@ level_update:
     sta $D418
     lda #15
     sta snd_timer
+    ;; Pre-roll first asteroid direction on reaching level 2
+    lda level
+    cmp #2
+    bne .no_up
+    jsr ast_preview
+    lda #40
+    sta ast_timer
 .no_up:
     rts
 
@@ -846,19 +873,27 @@ ast_spawn:
     jmp .done
 .sk3:
 
-    ;; Shuffle LFSR with raster so each spawn is different
-    jsr lfsr_tick          ; always advance at least once
-    lda $d012
-    and #$0F               ; 0-15 extra ticks
-    tax
-.lshuf:
-    jsr lfsr_tick
-    dex
-    bpl .lshuf             ; 1-17 total ticks before angle pick
+    ;; Use pre-rolled direction if available (position already computed)
+    lda ast_warn_dir
+    cmp #255
+    beq .random_pick
+    lda ast_next_vx
+    sta ast_vx
+    lda ast_next_vy
+    sta ast_vy
+    lda ast_warn_x
+    sta ast_tmp2
+    lda ast_warn_y
+    sta ast_tmp
+    lda #255
+    sta ast_warn_dir
+    jmp .reset_x
+.random_pick:
 
-    ;; Pick random angle from full table (16 entries, 32 bytes)
-    jsr lfsr_tick
-    and #$0F            ; 0-15
+    ;; CIA timer + raster — independent of LFSR cycle
+    lda $dc04
+    eor $d012
+    and #$1F
     asl
     tax
     lda ast_angles, x
@@ -866,6 +901,7 @@ ast_spawn:
     lda ast_angles+1, x
     sta ast_vy
 
+.determine_edge:
     ;; Determine spawn edge from direction
     ;; Bottom spawn: dy negative (bits 6-7 of dy set = $80-$FF)
     lda ast_vy
@@ -1014,6 +1050,7 @@ ast_spawn:
     sta ast_msb
     sta ast_msb
     jsr lfsr_tick       ; shuffle for next spawn
+    jsr ast_preview
     rts
 
 .done:
@@ -1021,6 +1058,99 @@ ast_spawn:
     rts
 ast_tmp: !byte 0
 ast_tmp2: !byte 0
+
+;; ============================================================
+;; Pre-roll next asteroid direction + position for radar warning
+;; ============================================================
+ast_preview:
+    lda state
+    cmp #GAME_PLAYING
+    beq .ap_go
+    rts
+.ap_go:
+
+    ;; CIA timer + raster — independent of LFSR cycle
+    lda $dc04
+    eor $d012
+    and #$1F
+    asl
+    tax
+    lda ast_angles, x
+    sta ast_next_vx
+    lda ast_angles+1, x
+    sta ast_next_vy
+
+    ;; Determine direction AND compute spawn position
+    lda ast_next_vy
+    bpl .ap_nb
+
+    ;; BOTTOM: Y=210, random X 40-167
+    lda #0
+    sta ast_warn_dir
+    lda #210
+    sta ast_warn_y
+    jsr lfsr_tick
+    and #$7F
+    adc #40
+    sta ast_warn_x
+    jmp .ap_tail
+
+.ap_nb:
+    lda ast_next_vx
+    bmi .ap_nt
+    lda ast_next_vy
+    cmp #1
+    bcc .ap_nt
+
+    ;; TOP: Y=50, random X 40-167
+    lda #1
+    sta ast_warn_dir
+    lda #50
+    sta ast_warn_y
+    jsr lfsr_tick
+    and #$7F
+    adc #40
+    sta ast_warn_x
+    jmp .ap_tail
+
+.ap_nt:
+    lda ast_next_vx
+    bpl .ap_lft
+
+    ;; RIGHT: X=255, random Y 50-229
+    lda #2
+    sta ast_warn_dir
+    lda #255
+    sta ast_warn_x
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .ap_ry
+    lda #229
+.ap_ry:
+    sta ast_warn_y
+    jmp .ap_tail
+
+.ap_lft:
+    ;; LEFT: X=24, random Y 50-229
+    lda #3
+    sta ast_warn_dir
+    lda #24
+    sta ast_warn_x
+    jsr lfsr_tick
+    and #$7F
+    adc #50
+    cmp #230
+    bcc .ap_ly
+    lda #229
+.ap_ly:
+    sta ast_warn_y
+
+.ap_tail:
+    jsr lfsr_tick
+.ap_done:
+    rts
 
 ast_update:
     ;; Decrement spawn timer
@@ -1030,7 +1160,7 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
-    lda #30             ; respawn delay
+    lda #40             ; respawn delay
     sta ast_timer
 .spwn_d:
 
@@ -1140,6 +1270,15 @@ ast_update:
     cmp #10
     bcc .despawn
     cmp #236
+    bcc .ds_xchk
+    bcs .despawn
+
+.ds_xchk:
+    ;; Check X despawn — prevents dy=0 asteroids from living forever
+    lda ast_x, x
+    cmp #8
+    bcc .despawn
+    cmp #248
     bcc .mv_nx
 
 .despawn:
@@ -1318,6 +1457,78 @@ ast_collision:
     sta $D418
     lda #20
     sta snd_timer
+    rts
+
+;; ============================================================
+;; Radar: sprite 5 at exact spawn position
+;; ============================================================
+radar_do:
+    lda state
+    cmp #GAME_PLAYING
+    bne .r_hide
+
+    lda ast_warn_dir
+    cmp #255
+    beq .r_hide
+
+    ;; Clear sprite 5 MSB (default: X < 256)
+    lda $d010
+    and #$DF
+    sta $d010
+
+    lda ast_warn_dir
+    beq .r_bot
+    cmp #1
+    beq .r_top
+    cmp #2
+    beq .r_rgt
+
+    ;; LEFT edge: pin X=24, exact Y
+    lda #24
+    sta $d00a
+    lda ast_warn_y
+    sta $d00b
+    bne .r_ena
+
+.r_rgt:
+    ;; RIGHT edge: pin X=280 (256+24), exact Y
+    lda $d010
+    ora #$20
+    sta $d010
+    lda #24
+    sta $d00a
+    lda ast_warn_y
+    sta $d00b
+    bne .r_ena
+
+.r_top:
+    ;; TOP edge: pin Y=51, exact X
+    lda ast_warn_x
+    sta $d00a
+    lda #51
+    sta $d00b
+    bne .r_ena
+
+.r_bot:
+    ;; BOTTOM edge: pin Y=229, exact X
+    lda ast_warn_x
+    sta $d00a
+    lda #229
+    sta $d00b
+
+.r_ena:
+    lda $d015
+    ora #$20
+    sta $d015
+    rts
+
+.r_hide:
+    lda $d010
+    and #$DF
+    sta $d010
+    lda $d015
+    and #$DF
+    sta $d015
     rts
 
 
@@ -1864,3 +2075,27 @@ ds_press:  !scr "press space to play", 0
 
 * = $2140
     !bin "assets/sprites/rock.spr"
+
+;; Radar indicator sprite data (small diamond crosshair at center)
+* = $2180
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$18,$00
+    !byte $00,$3c,$00
+    !byte $00,$7e,$00
+    !byte $00,$e7,$00
+    !byte $00,$7e,$00
+    !byte $00,$3c,$00
+    !byte $00,$18,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00
