@@ -51,6 +51,7 @@ ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X
 ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
 c_saved:    !byte 0    ; saved $D01E for multi-check
 cheat_spc:  !byte $FF  ; previous SPACE state (edged)
+radar_was:  !byte 0     ; radar visibility edge detect
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING = 0
@@ -60,6 +61,8 @@ GAME_SPLASH  = 3
 SCRN = $0400
 
 gstart:
+    jsr sfx_gate_off       ; tick preset sound timers
+    jsr sfx_tick_all       ; tick multi-frame presets
     jsr init_once
     jsr dmz_do
     lda state
@@ -109,6 +112,8 @@ do_init:
     ;; Border + zones + screen fill
     lda #11
     sta $d020
+    lda #$0F
+    sta $D418              ; master volume 15
 
     ;; Fill screen with solid blocks (shows color RAM zones)
     ldx #0
@@ -275,20 +280,7 @@ do_over:
     bne ov_wait
     inc go_drawn
     jsr draw_gameover
-    lda #<5000
-    sta $D400
-    lda #>5000
-    sta $D401
-    lda #$21
-    sta $D404
-    lda #$01
-    sta $D405
-    lda #$00
-    sta $D406
-    lda #$0F
-    sta $D418
-    lda #30
-    sta snd_timer
+    jsr sfx_drone          ; Atari-style low rumble
     jsr sound_tick
     rts
 
@@ -400,6 +392,8 @@ restart:
     lda #0
     sta ast_warn_x
     sta ast_warn_y
+    lda #0
+    sta radar_was
     lda #0
     sta $d004
     sta $d006
@@ -844,20 +838,7 @@ c_check:
     sta enemy_y
     sta $d003
 
-    lda #<5000
-    sta $D400
-    lda #>5000
-    sta $D401
-    lda #$21
-    sta $D404
-    lda #$01
-    sta $D405
-    lda #$00
-    sta $D406
-    lda #$0F
-    sta $D418
-    lda #20
-    sta snd_timer
+    jsr sfx_explosion      ; noise rumble with decay
 
     lda #GAME_DYING
     sta state
@@ -874,6 +855,7 @@ c_no:
 ;; Sound tick
 ;; ============================================================
 sound_tick:
+    jsr sfx_gate_off
     lda snd_timer
     beq st_done
     dec snd_timer
@@ -907,21 +889,7 @@ level_update:
     sta speed_frac
     lda level_spawns, x
     sta ast_timer
-    ;; Play level-up chirp on voice 3
-    lda #$40
-    sta $D40E
-    lda #$1F
-    sta $D40F
-    lda #$29
-    sta $D412
-    lda #$00
-    sta $D413
-    lda #$11
-    sta $D414
-    lda #$0F
-    sta $D418
-    lda #15
-    sta snd_timer
+    jsr sfx_ping           ; Atari-style ascending two-note zap
     ;; Pre-roll first asteroid direction on reaching level 2
     lda level
     cmp #2
@@ -1186,6 +1154,10 @@ ast_preview:
     beq .ap_go
     rts
 .ap_go:
+
+    ;; reset radar edge detect for new warning
+    lda #0
+    sta radar_was
 
     ;; CIA timer + raster — independent of LFSR cycle
     lda $dc04
@@ -1568,20 +1540,7 @@ ast_collision:
     sta flash_tmr
     sta hit_timer
 
-    lda #<5000
-    sta $D400
-    lda #>5000
-    sta $D401
-    lda #$21
-    sta $D404
-    lda #$01
-    sta $D405
-    lda #$00
-    sta $D406
-    lda #$0F
-    sta $D418
-    lda #20
-    sta snd_timer
+    jsr sfx_explosion      ; noise rumble with decay
     rts
 
 ;; ============================================================
@@ -1590,11 +1549,19 @@ ast_collision:
 radar_do:
     lda state
     cmp #GAME_PLAYING
-    bne .r_hide
+    bne .r_hide_w
 
     lda ast_warn_dir
     cmp #255
-    beq .r_hide
+    beq .r_hide_w
+
+    ;; edge: was hidden, now visible → radar ping
+    lda radar_was
+    bne .r_go
+    inc radar_was
+    jsr sfx_boop
+
+.r_go:
 
     lda ast_warn_dir
     beq .r_bot
@@ -1619,10 +1586,10 @@ radar_do:
     bne .r_ena
 
 .r_top:
-    ;; TOP edge: pin Y=51, exact X
+    ;; TOP edge: pin Y=60, exact X
     lda ast_warn_x
     sta $d00a
-    lda #51
+    lda #59
     sta $d00b
     bne .r_ena
 
@@ -1639,6 +1606,10 @@ radar_do:
     sta $d015
     rts
 
+.r_hide_w:
+    lda #0
+    sta radar_was
+    ;; fall through to hide sprite
 .r_hide:
     lda $d015
     and #$DF
@@ -2027,21 +1998,7 @@ level_spawns: !byte 40, 40, 30, 25, 20            ; asteroid spawn interval
 level_scores: !word 0, 1000, 2000, 3000, 4000     ; score per level (cheat)
 
 chk_sid:
-    lda #$40
-    sta $D40E
-    lda #$1F
-    sta $D40F
-    lda #$29
-    sta $D412
-    lda #$00
-    sta $D413
-    lda #$11
-    sta $D414
-    lda #$0F
-    sta $D418
-    lda #10
-    sta snd_timer
-    rts
+    jmp sfx_ping           ; ascending two-note level-up sound
 
 ;; -- Rock sprite data (asteroid) --
 ;; ============================================================
@@ -2216,26 +2173,27 @@ ds_credit: !scr "by: gpowerf", 0
 * = $2140
     !bin "assets/sprites/rock.spr"
 
-;; Radar indicator sprite data (small diamond crosshair at center)
+;; Radar indicator sprite data (crosshair target)
 * = $2180
     !byte $00,$00,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$7C,$00
+    !byte $00,$92,$00
+    !byte $00,$82,$00
+    !byte $3F,$EF,$F0
+    !byte $00,$82,$00
+    !byte $00,$92,$00
+    !byte $00,$7C,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
+    !byte $00,$10,$00
     !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$18,$00
-    !byte $00,$3c,$00
-    !byte $00,$7e,$00
-    !byte $00,$e7,$00
-    !byte $00,$7e,$00
-    !byte $00,$3c,$00
-    !byte $00,$18,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00,$00,$00
-    !byte $00
+    !byte $01

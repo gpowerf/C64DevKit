@@ -36,6 +36,8 @@ sfx_beep:
 ;; sfx_boop — short low-pitched blip (triangle, voice 1)
 ;; ============================================================
 sfx_boop:
+    lda #$0F
+    sta SID_VOL_MODE
     lda #$00
     sta SID_FREQ_LO_1
     lda #$10
@@ -122,6 +124,8 @@ sfx_hit:
 ;; sfx_explosion — noise rumble (noise, voice 3, ~25 frames)
 ;; ============================================================
 sfx_explosion:
+    lda #$0F
+    sta SID_VOL_MODE
     lda #$00
     sta SID_FREQ_LO_3
     lda #$40
@@ -306,6 +310,158 @@ sfx_go_d:
     rts
 
 ;; ============================================================
+;; Atari 2600-inspired presets — harsh, instant, TIA-style
+;; ============================================================
+
+;; sfx_zap — quick pulse blip (voice 1, ~6 frames)
+;; ============================================================
+sfx_zap:
+    lda #$0F
+    sta SID_VOL_MODE
+    lda #$08
+    sta SID_PW_LO_1
+    lda #$00
+    sta SID_PW_HI_1        ; narrow pulse = harsh Atari tone
+    lda #$40
+    sta SID_FREQ_LO_1
+    lda #$01
+    sta SID_FREQ_HI_1      ; ~635 Hz
+    lda #$00               ; ADSR: instant attack, instant release
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #6
+    sta sfx_dur
+    rts
+
+;; sfx_zap_hi — higher pitch zap (voice 1, ~6 frames)
+;; ============================================================
+sfx_zap_hi:
+    lda #$0F
+    sta SID_VOL_MODE
+    lda #$08
+    sta SID_PW_LO_1
+    lda #$00
+    sta SID_PW_HI_1
+    lda #$00
+    sta SID_FREQ_LO_1
+    lda #$03
+    sta SID_FREQ_HI_1      ; ~1269 Hz
+    lda #$00
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #6
+    sta sfx_dur
+    rts
+
+;; sfx_explode — noise burst (voice 3, ~12 frames)
+;; ============================================================
+sfx_explode:
+    lda #$0F
+    sta SID_VOL_MODE       ; ensure volume is on
+    lda #$00
+    sta SID_FREQ_LO_3
+    lda #$40
+    sta SID_FREQ_HI_3      ; slow iteration = deep rumble
+    lda #$00               ; ADSR: instant
+    sta SID_ATK_DEC_3
+    lda #$00
+    sta SID_SUST_REL_3
+    lda #SID_WAVE_NOISE | SID_GATE_ON
+    sta SID_CTRL_3
+    lda #12
+    sta sfx_dur
+    rts
+
+;; sfx_drone — low pulse rumble (voice 1, ~30 frames)
+;; ============================================================
+sfx_drone:
+    lda #$0F
+    sta SID_VOL_MODE
+    lda #$08
+    sta SID_PW_LO_1
+    lda #$00
+    sta SID_PW_HI_1
+    lda #$00
+    sta SID_FREQ_LO_1
+    lda #$40
+    sta SID_FREQ_HI_1      ; ~60 Hz — deep Atari rumble
+    lda #$00
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #30
+    sta sfx_dur
+    rts
+
+;; sfx_ping — two ascending Atari zaps (voice 1, multi-frame)
+;; sfx_kind = 5
+;; ============================================================
+sfx_ping:
+    lda #$0F
+    sta SID_VOL_MODE
+    lda #5
+    sta sfx_kind
+    lda #0
+    sta sfx_step
+    lda #6
+    sta sfx_tmp
+    rts
+
+sfx_ping_tick:
+    dec sfx_tmp
+    beq sfx_pg_go
+    rts
+sfx_pg_go:
+    lda sfx_step
+    beq sfx_pg_n1
+    cmp #1
+    beq sfx_pg_n2
+    ;; done — gate off on next frame
+    lda #1
+    sta sfx_dur
+    lda #0
+    sta sfx_kind
+    rts
+sfx_pg_n1:
+    lda #$08
+    sta SID_PW_LO_1
+    lda #$00
+    sta SID_PW_HI_1
+    lda #$00               ; ~1930 Hz
+    sta SID_FREQ_LO_1
+    lda #$02
+    sta SID_FREQ_HI_1
+    jmp sfx_pg_set
+sfx_pg_n2:
+    lda #$08
+    sta SID_PW_LO_1
+    lda #$00
+    sta SID_PW_HI_1
+    lda #$00               ; ~3860 Hz
+    sta SID_FREQ_LO_1
+    lda #$01
+    sta SID_FREQ_HI_1
+sfx_pg_set:
+    lda #$00
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_1
+    inc sfx_step
+    lda #4                  ; faster: 4 frames per note
+    sta sfx_tmp
+    rts
+
+;; ============================================================
 ;; sfx_silence — gate off all 3 voices, restore volume
 ;; ============================================================
 sfx_silence:
@@ -335,6 +491,10 @@ sfx_ta_3:
     bne sfx_ta_4
     jmp sfx_laser_tick
 sfx_ta_4:
+    cmp #4
+    bne sfx_ta_5
     jmp sfx_powerup_tick
+sfx_ta_5:
+    jmp sfx_ping_tick
 sfx_ta_d:
     rts

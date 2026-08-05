@@ -5,7 +5,7 @@
     jmp demo_start
 
 preset_idx: !byte 0
-NUM_PRESETS = 8
+NUM_PRESETS = 13
 
 preset_names:
 name_beep:      !scr "beep", 0
@@ -16,10 +16,16 @@ name_explosion: !scr "explosion", 0
 name_alarm:     !scr "alarm", 0
 name_laser:     !scr "laser", 0
 name_powerup:   !scr "powerup", 0
+name_zap:       !scr "zap", 0
+name_zap_hi:    !scr "zap_hi", 0
+name_explode:   !scr "explode", 0
+name_drone:     !scr "drone", 0
+name_ping:      !scr "ping", 0
 
 name_offsets:
     !word name_beep, name_boop, name_coin, name_hit
     !word name_explosion, name_alarm, name_laser, name_powerup
+    !word name_zap, name_zap_hi, name_explode, name_drone, name_ping
 
 jtbl:
     !word sfx_beep
@@ -30,6 +36,11 @@ jtbl:
     !word sfx_alarm
     !word sfx_laser
     !word sfx_powerup
+    !word sfx_zap
+    !word sfx_zap_hi
+    !word sfx_explode
+    !word sfx_drone
+    !word sfx_ping
 
 btn_was:  !byte 1      ; 1=button was up, 0=button was down
 jptr:     !word 0
@@ -114,14 +125,14 @@ in_return:
     jmp main
 
 ;; ============================================================
-;; Show preset name at row 20, col 2
+;; Show preset name at row 21, col 2
 ;; ============================================================
 show_name:
     ;; clear name area (cols 2-10, 9 chars)
     ldx #9
     lda #$20
 sn_clr:
-    sta $0400+20*40+2, x
+    sta $0400+21*40+2, x
     dex
     bpl sn_clr
 
@@ -138,9 +149,9 @@ sn_clr:
 sn_loop:
     lda ($02), y
     beq sn_done
-    sta $0400+20*40+2, y
+    sta $0400+21*40+2, y
     lda #15
-    sta $d800+20*40+2, y
+    sta $d800+21*40+2, y
     iny
     cpy #9
     bne sn_loop

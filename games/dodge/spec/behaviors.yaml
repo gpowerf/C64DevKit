@@ -341,8 +341,7 @@ behaviors:
 #          If player Y < 140: spawn at Y=210
 #          Else:              spawn at Y=60
 #        (This puts the enemy roughly opposite the player.)
-#     4. Play death sound: voice 1, freq 5000, saw wave, attack=1,
-#        sustain=0, release=0, volume=15, 20-frame duration
+#     4. Play death sound via sfx_explosion: noise rumble (voice 3, 25 fr).
 #     5. Set state = DYING, state_tmr = 150, flash_tmr = 0
 #     6. Return (skip asteroid check — state already changed)
 #
@@ -368,7 +367,7 @@ behaviors:
 #     2. Decrement lives
 #     3. Set state = DYING, state_tmr = 150, flash_tmr = 0
 #     4. Clear hit_timer
-#     5. Play death sound (voice 1, freq 5000, saw, 20 frames)
+#     5. Play death sound via sfx_explosion (noise rumble, 25 fr).
 #
 # Hit invincibility:
 #   After respawning from DYING: hit_timer = 150 (≈ 3 sec invincibility).
@@ -417,13 +416,11 @@ behaviors:
 #     - Write "game over" at row 12, col 16
 #     - Write "press space to play" at row 13, col 13
 #     - Text uses !scr for PETSCII conversion (lowercase ASCII → screen codes)
-#   Play game-over sound:
-#     - Voice 1, freq 5000, saw wave + gate, attack=1, sustain=0,
-#       release=0, volume=15, 30-frame duration
-#     - Sound auto-clears when timer expires (sound_tick)
-#
+#   Play game-over sound via sfx_drone (low pulse rumble, ~60 Hz, 30 fr):
+#     auto-cleared by sfx_gate_off when sfx_dur reaches 0.
+
 # Wait loop (subsequent frames):
-#   - Run sound_tick (decrement counter, gate-off voice 1 when expired)
+#   - Run sound_tick (handles both legacy snd_timer and sfx_gate_off)
 #   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4)
 #   - If SPACE pressed: call restart, return
 #   - Else: loop
@@ -473,9 +470,8 @@ behaviors:
 #
 #   Level 1 has no asteroid spawns (ast_spawn returns if level < 2).
 #
-# Level-up sound:
-#   Voice 3: freq = $1F40 (8000 Hz), saw + gate, attack=2 decay=9,
-#            sustain=0 release=0, volume=15, 15-frame duration
+# Level-up sound via sfx_ping:
+#   Two ascending pulse zaps (~1930 Hz → ~3860 Hz, 4 fr each).
 #
 # On reaching level 2: also call ast_preview to pre-roll first asteroid
 #   warning direction immediately.
@@ -582,11 +578,13 @@ behaviors:
 #     pinned to the appropriate screen edge:
 #
 #     ast_warn_dir 0 (bottom): X = ast_warn_x,  Y = 229
-#     ast_warn_dir 1 (top):    X = ast_warn_x,  Y = 51
+#     ast_warn_dir 1 (top):    X = ast_warn_x,  Y = 59
 #     ast_warn_dir 2 (right):  X = 230,         Y = ast_warn_y
 #     ast_warn_dir 3 (left):   X = 24,          Y = ast_warn_y
 #
 #   Enable sprite ($D015 | $20).
+#   On first frame of visibility (edge from hidden): play sfx_zap_hi ping.
+#   radar_was tracks visibility edge — set on show, cleared on hide/restart.
 #
 # The radar sprite data is a diamond crosshair:
 #   8×8 diamond at the centre of 24×21 grid, transparent elsewhere.
@@ -635,39 +633,27 @@ behaviors:
 
 
 # =============================================================================
-# System 13 — Sound Effects (sound_tick)
+# System 13 — Sound Effects (sound_tick + presets)
 # =============================================================================
 #
-# General pattern:
-#   - Set SID voice registers directly
-#   - Set snd_timer = duration in frames
-#   - sound_tick called each frame: decrements timer, auto-clears gate
-#     when timer reaches 0 (AND $D404 with $FE for voice 1, or equivalent)
-#
-# Three sound events:
+# The game uses Atari 2600-inspired sound presets from sound_presets.acme.
+# All use pulse or noise waveforms with instant ADSR ($00) for raw TIA-style
+# character — no envelope shaping, just hard gating.
 #
 #   Death (collision hit):
-#     Voice 1, freq $1388 (5000 Hz), saw wave ($21 = saw+gate),
-#     20 frames.  ADSR: attack=1 decay=0 sustain=0 release=0.
+#     sfx_explosion — voice 3 noise rumble with decay, 25 frames.
 #
-#   Level-up chirp:
-#     Voice 3, freq $1F40 (8000 Hz), saw wave ($21 = saw+gate),
-#     15 frames.  ADSR: attack=2 decay=0 sustain=0 release=0.
+#   Level-up:
+#     sfx_ping — voice 1, two ascending pulse zaps, 6 frames each.
 #
-#   Game-over drone:
-#     Voice 1, freq $1388 (5000 Hz), saw wave ($21 = saw+gate),
-#     30 frames.  ADSR: attack=1 decay=0 sustain=0 release=0.
+#   Game-over:
+#     sfx_drone — voice 1, low pulse rumble (~60 Hz), 30 frames.
 #
-# All sounds use master volume = 15 ($0F → $D418).
-# No ADSR envelopes — sounds gate on, play at full volume, then gate off.
-# Duration is coarse (frame-level), not sample-accurate.
+# sound_tick (called each frame):
+#   - Calls sfx_gate_off to handle sfx_dur-based gate-off
+#   - Decrements legacy snd_timer, gate-off voice 1 when zero
 #
-# SID voice register map (reference):
-#   Voice 1: $D400 (freq lo), $D401 (freq hi), $D402 (pw lo), $D403 (pw hi),
-#            $D404 (ctrl), $D405 (atk/dec), $D406 (sus/rel)
-#   Voice 3: $D40E (freq lo), $D40F (freq hi), $D410 (pw lo), $D411 (pw hi),
-#            $D412 (ctrl), $D413 (atk/dec), $D414 (sus/rel)
-#   Master:  $D418 (volume + filter mode)
+# sfx_gate_off auto-clears voice 1 + 3 when sfx_dur reaches 0.
 #
 
 

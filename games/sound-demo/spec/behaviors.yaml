@@ -8,17 +8,23 @@ behaviors:
       # Header
       - display_text: {text: "c64devk sound presets", row: 2, col: 11, color: 7}
       # Instructions
-      - display_text: {text: "press space or fire to cycle", row: 6, col: 9, color: 15}
-      # Preset list header
-      - display_text: {text: "beep      high-pitched blip", row: 10, col: 2, color: 3}
-      - display_text: {text: "boop      low-pitched blip", row: 11, col: 2, color: 3}
-      - display_text: {text: "coin      two-note ding", row: 12, col: 2, color: 3}
-      - display_text: {text: "hit       noise impact", row: 13, col: 2, color: 3}
-      - display_text: {text: "explosion noise rumble", row: 14, col: 2, color: 3}
-      - display_text: {text: "alarm     alternating tone", row: 15, col: 2, color: 3}
-      - display_text: {text: "laser     downward sweep", row: 16, col: 2, color: 3}
-      - display_text: {text: "powerup   ascending arpeggio", row: 17, col: 2, color: 3}
+      - display_text: {text: "press space or fire to cycle", row: 5, col: 9, color: 15}
+      # Preset list
+      - display_text: {text: "beep      high-pitched blip", row: 7, col: 2, color: 3}
+      - display_text: {text: "boop      low-pitched blip", row: 8, col: 2, color: 3}
+      - display_text: {text: "coin      two-note ding", row: 9, col: 2, color: 3}
+      - display_text: {text: "hit       noise impact", row: 10, col: 2, color: 3}
+      - display_text: {text: "explosion noise rumble", row: 11, col: 2, color: 3}
+      - display_text: {text: "alarm     alternating tone", row: 12, col: 2, color: 3}
+      - display_text: {text: "laser     downward sweep", row: 13, col: 2, color: 3}
+      - display_text: {text: "powerup   ascending arpeggio", row: 14, col: 2, color: 3}
+      # Atari-style presets
+      - display_text: {text: "zap       pulse blip", row: 15, col: 2, color: 10}
+      - display_text: {text: "zap_hi    pulse blip (high)", row: 16, col: 2, color: 10}
+      - display_text: {text: "explode   noise burst", row: 17, col: 2, color: 10}
+      - display_text: {text: "drone     low pulse rumble", row: 18, col: 2, color: 10}
+      - display_text: {text: "ping      ascending two-note", row: 19, col: 2, color: 10}
       # Current label
-      - display_text: {text: "playing: ", row: 19, col: 2, color: 1}
+      - display_text: {text: "playing: ", row: 21, col: 2, color: 1}
       # Version
-      - display_text: {text: "v0.1  --  available from macros/sound_presets.acme", row: 22, col: 4, color: 12}
+      - display_text: {text: "v0.1  --  available from macros/sound_presets.acme", row: 23, col: 4, color: 12}
