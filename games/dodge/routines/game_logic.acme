@@ -17,6 +17,7 @@ snd_timer:  !byte 0
 state:      !byte 3    ; 0=playing 1=dying 2=gameover 3=splash
 state_tmr:  !byte 0
 score_tmr:  !byte 0
+zone_ticks: !byte 0          ; consecutive green-zone score ticks
 flash_tmr:  !byte 0
 init_done:  !byte 0
 splash_done: !byte 0
@@ -32,7 +33,7 @@ dmz_row:    !byte 1
 
 level:      !byte 1    ; difficulty level (1-5+)
 prev_k:     !byte 0    ; previous score/1000 threshold
-speed_div:  !byte 2    ; enemy speed divisor
+speed_frac: !byte 128  ; fractional speed (128/256*50 = 25 px/s)
 ast_timer:  !byte 40   ; countdown to next asteroid spawn
 ast_active: !byte 0    ; bits 0-2: which asteroids are active
 ast_msb:    !byte 0    ; $D010 MSB bits for X >= 256
@@ -357,6 +358,8 @@ restart:
     sta speed_ctr
     sta go_drawn
     sta last_safe
+    lda #0
+    sta zone_ticks
     lda #10
     sta hit_timer
 
@@ -385,8 +388,8 @@ restart:
     sta level
     lda #0
     sta prev_k
-    lda #2
-    sta speed_div
+    lda #128
+    sta speed_frac
     lda #40
     sta ast_timer
     lda #0
@@ -523,6 +526,89 @@ k3:
 .inc_right:
     inc $d000
 kdone:
+    ;; --- Joystick port 2 (active low, invert to active high) ---
+    lda #$00
+    sta $dc02            ; set port A all inputs (joystick read mode)
+    lda $dc00
+    eor #$ff
+    tax                  ; save state in X
+    lda #$ff
+    sta $dc02            ; restore port A all outputs (keyboard write mode)
+
+    ;; UP (bit 0)
+    txa
+    and #$01
+    beq .joy_noup
+    lda $d001
+    cmp #50
+    bcc .joy_noup
+    beq .joy_noup
+    dec $d001
+    lda #2
+    sta player_dir
+.joy_noup:
+
+    ;; DOWN (bit 1)
+    txa
+    and #$02
+    beq .joy_nodown
+    lda $d001
+    cmp #229
+    bcs .joy_nodown
+    inc $d001
+    lda #3
+    sta player_dir
+.joy_nodown:
+
+    ;; LEFT (bit 2)
+    txa
+    and #$04
+    beq .joy_noleft
+    lda $d000
+    cmp #24
+    bne .joy_doleft
+    lda $d010
+    and #$01
+    beq .joy_noleft
+.joy_doleft:
+    lda #1
+    sta player_dir
+    lda $d000
+    bne .joy_decleft
+    lda $d010
+    and #$01
+    beq .joy_noleft
+    dec $d010
+    dec $d000
+    jmp .joy_noleft
+.joy_decleft:
+    dec $d000
+.joy_noleft:
+
+    ;; RIGHT (bit 3)
+    txa
+    and #$08
+    beq .joy_noright
+    lda $d000
+    cmp #64
+    bcc .joy_doright
+    lda $d010
+    and #$01
+    bne .joy_noright
+.joy_doright:
+    lda #0
+    sta player_dir
+    lda $d000
+    cmp #255
+    bne .joy_incright
+    inc $d000
+    lda $d010
+    ora #$01
+    sta $d010
+    jmp .joy_noright
+.joy_incright:
+    inc $d000
+.joy_noright:
     rts
 
 ;; ============================================================
@@ -542,12 +628,11 @@ enemy_do:
     rts
 
 e_active:
-    inc speed_ctr
+    clc
     lda speed_ctr
-    cmp speed_div
-    bcc e_done
-    lda #0
+    adc speed_frac
     sta speed_ctr
+    bcc e_done
 
     lda $d000
     cmp enemy_x
@@ -613,6 +698,9 @@ score_do:
     and #$01
     beq .not_safe
 
+    ;; DMZ: reset zone_ticks + entry penalty
+    lda #0
+    sta zone_ticks
     lda last_safe
     bne s_done
     lda #1
@@ -642,10 +730,31 @@ score_do:
 
     lda $d000
     cmp #128
-    bcs s_done
+    bcc .green
+
+    ;; Neutral zone: reset zone_ticks
+    lda #0
+    sta zone_ticks
+    rts
+
+.green:
+    ;; Tiered scoring: +2 (0-5s), +3 (5-15s), +5 (15s+)
+    inc zone_ticks
+    lda zone_ticks
+    cmp #38
+    bcs .pts5
+    cmp #13
+    bcs .pts3
+    lda #2
+    bne .add
+.pts3:
+    lda #3
+    bne .add
+.pts5:
+    lda #5
+.add:
     clc
-    lda score
-    adc #2
+    adc score
     sta score
     lda score+1
     adc #0
@@ -785,8 +894,19 @@ level_update:
     cmp prev_k
     beq .no_up
     bcc .no_up
-    sta prev_k       ; advance threshold
+    sta prev_k
     inc level
+    ;; Apply level difficulty
+    ldx level
+    cpx #6
+    bcc .lv_ok
+    ldx #5
+.lv_ok:
+    dex
+    lda level_speeds, x
+    sta speed_frac
+    lda level_spawns, x
+    sta ast_timer
     ;; Play level-up chirp on voice 3
     lda #$40
     sta $D40E
@@ -807,8 +927,6 @@ level_update:
     cmp #2
     bne .no_up
     jsr ast_preview
-    lda #40
-    sta ast_timer
 .no_up:
     rts
 
@@ -1160,7 +1278,13 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
-    lda #40             ; respawn delay
+    ldx level
+    cpx #6
+    bcc .a_ok
+    ldx #5
+.a_ok:
+    dex
+    lda level_spawns, x
     sta ast_timer
 .spwn_d:
 
@@ -1665,14 +1789,14 @@ chk_edge:
 chk_set:
     ldx level
     dex
-    lda chk_speeds, x
-    sta speed_div
+    lda level_speeds, x
+    sta speed_frac
     txa
     asl
     tax
-    lda chk_offs, x
+    lda level_scores, x
     sta score
-    lda chk_offs+1, x
+    lda level_scores+1, x
     sta score+1
     sta prev_k           ; match score high byte so level_update skips
     ora score
@@ -1898,8 +2022,9 @@ chk_up:
     lda #$10
     sta cheat_spc          ; remember: SPACE not pressed
     rts
-chk_speeds: !byte 2,2,2,2,2    ; speed_div (always 2 now)
-chk_offs:   !word 0, 1000, 2000, 3000, 4000  ; score values
+level_speeds: !byte 128, 128, 128, 154, 179     ; px/s: 25, 25, 25, 30, 35
+level_spawns: !byte 40, 40, 30, 25, 20            ; asteroid spawn interval
+level_scores: !word 0, 1000, 2000, 3000, 4000     ; score per level (cheat)
 
 chk_sid:
     lda #$40
