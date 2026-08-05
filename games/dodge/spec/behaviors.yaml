@@ -297,7 +297,7 @@ behaviors:
 #
 #   4. Clamp enemy position:
 #        X clamped to [24, 224]
-#        Y clamped to [50, 229]
+#        Y clamped to [58, 229]
 #
 #   5. Write enemy_x / enemy_y to VIC registers ($D002/$D003).
 #      Clear $D010 bit 1 (enemy never uses MSB — max X=224).

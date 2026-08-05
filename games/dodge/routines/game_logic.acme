@@ -52,6 +52,7 @@ ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
 c_saved:    !byte 0    ; saved $D01E for multi-check
 cheat_spc:  !byte $FF  ; previous SPACE state (edged)
 radar_was:  !byte 0     ; radar visibility edge detect
+pulse_ctr:  !byte 0     ; enemy colour pulse timer
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING = 0
@@ -339,6 +340,10 @@ space_text: !scr "press space to play", 0
 
 ;; ============================================================
 restart:
+    lda #2
+    sta $D028             ; enemy colour back to red
+    lda #0
+    sta pulse_ctr
     lda #3
     sta lives
     lda #0
@@ -451,7 +456,7 @@ keyboard_read:
     and #$02
     bne k1
     lda $d001
-    cmp #50
+    cmp #58
     bcc k1
     beq k1
     dec $d001
@@ -534,7 +539,7 @@ kdone:
     and #$01
     beq .joy_noup
     lda $d001
-    cmp #50
+    cmp #58
     bcc .joy_noup
     beq .joy_noup
     dec $d001
@@ -609,6 +614,22 @@ kdone:
 ;; Enemy AI
 ;; ============================================================
 enemy_do:
+    ;; pulsate enemy colour at level 5+ (every 8 frames)
+    lda level
+    cmp #5
+    bcc .no_pulse
+    inc pulse_ctr
+    lda pulse_ctr
+    and #$08
+    beq .red
+    lda #10             ; light red
+    bne .p_set
+.red:
+    lda #2              ; red
+.p_set:
+    sta $D028
+.no_pulse:
+
     lda enemy_init
     bne e_active
     inc enemy_init
@@ -662,7 +683,7 @@ e_xhi:
 
 e_cy:
     lda enemy_y
-    cmp #50
+    cmp #58
     bcs e_yhi
     lda #110
     sta enemy_y
@@ -890,6 +911,16 @@ level_update:
     lda level_spawns, x
     sta ast_timer
     jsr sfx_ping           ; Atari-style ascending two-note zap
+    ;; Enemy colour changes at level 5
+    lda level
+    cmp #5
+    bcc .red_col
+    lda #10             ; light red
+    bne .set_col
+.red_col:
+    lda #2              ; red
+.set_col:
+    sta $D028
     ;; Pre-roll first asteroid direction on reaching level 2
     lda level
     cmp #2
@@ -1773,6 +1804,16 @@ chk_set:
     ora score
     beq chk_clr            ; level 1: no chirp
     jsr chk_sid
+    ;; Enemy colour at level 5
+    lda level
+    cmp #5
+    bcc .chk_red
+    lda #10
+    bne .chk_setc
+.chk_red:
+    lda #2
+.chk_setc:
+    sta $D028
 
 chk_clr:
     lda #0

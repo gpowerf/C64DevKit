@@ -39,8 +39,8 @@
 
 # --- Movement bounds ---
 # Player:  X [24, DMZ edge (X<224 at low byte, MSB=0)],
-#          Y [50, 229] with upper/lower bounds enforced.
-# Enemy:   X [24, 224], Y [50, 229] — clamped to safe area.
+#          Y [58, 229] with upper/lower bounds enforced.
+# Enemy:   X [24, 224], Y [58, 229] — clamped to safe area.
 # Asteroid: despawn at Y < 10, Y > 235, or X < 8.
 #          X can exceed 255 (MSB handled via $D010) for right-edge spawns.
 
