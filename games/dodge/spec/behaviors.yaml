@@ -237,7 +237,7 @@ behaviors:
 #   ├─────────┼───┼───────────────────────────────────────────────────┤
 #   │ DMZ     │ ≥224 (MSB=0) or MSB=1 │ −5 on entry, no score, reset │
 #   │ Neutral │ 128–223   │ No score, reset zone_ticks               │
-#   │ Green   │ 24–127    │ Tiered score every 20 frames              │
+#   │ Score   │ 24–127    │ Tiered score every 20 frames              │
 #   └─────────┴───────────┴──────────────────────────────────────────┘
 #
 # DMZ entry penalty:
@@ -250,7 +250,7 @@ behaviors:
 #   Reset zone_ticks to 0.
 #   No score.
 #
-# Green zone (X < 128, MSB clear):
+# Score zone (X < 128, MSB clear):
 #   Every 20 frames (score_tmr counts 0..20):
 #     Increment zone_ticks.
 #     zone_ticks < 13:  +2 points

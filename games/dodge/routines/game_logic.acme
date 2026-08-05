@@ -17,7 +17,7 @@ snd_timer:  !byte 0
 state:      !byte 3    ; 0=playing 1=dying 2=gameover 3=splash
 state_tmr:  !byte 0
 score_tmr:  !byte 0
-zone_ticks: !byte 0          ; consecutive green-zone score ticks
+zone_ticks: !byte 0          ; consecutive score-zone ticks
 flash_tmr:  !byte 0
 init_done:  !byte 0
 splash_done: !byte 0
@@ -129,7 +129,7 @@ clr_scr:
     ldx #25
 z_row:
     ldy #0
-    lda #5                  ; green — score zone
+    lda #6                  ; blue — score zone
 z_grn:
     sta ($02), y
     iny
@@ -157,9 +157,9 @@ z_nh:
     dex
     bne z_row
 
-    ;; Top line header in white (overrides zone colors on row 0)
+    ;; Top line header: black background, text gets white from DSL
     ldx #0
-    lda #1
+    lda #0
 clr_col:
     sta $d800, x
     inx
@@ -412,7 +412,7 @@ restart:
     ;; Restore zone colors on game-over rows
     ldy #0
 r_green:
-    lda #5
+    lda #6
     sta $d9e0, y
     sta $da08, y
     iny
@@ -670,7 +670,7 @@ e_cy:
     lda enemy_y
     cmp #50
     bcs e_yhi
-    lda #50
+    lda #110
     sta enemy_y
     bne e_wr
 e_yhi:
@@ -823,7 +823,7 @@ c_check:
     lda $d000
     cmp #128
     bcc .spawn_right
-    lda #50
+    lda #110
     jmp .spawn_x
 .spawn_right:
     lda #200
@@ -1041,7 +1041,7 @@ ast_spawn:
     lda ast_vy
     cmp #1
     bcc .not_top         ; dy=0 → edge spawn, treat as right/left
-    lda #50
+    lda #110
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1223,7 +1223,7 @@ ast_preview:
     ;; TOP: Y=50, random X 40-167
     lda #1
     sta ast_warn_dir
-    lda #50
+    lda #110
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1928,7 +1928,7 @@ top0:
     and #$7F
     adc #40
     sta ast_x, x
-    lda #50
+    lda #110
     sta ast_y, x
     jmp .fv_reg
 lt0:

@@ -8,7 +8,7 @@
 #
 # Zone layout (rows 1–24):
 #   ┌──────────────┬──────────────────┬──────────────┐
-#   │  Green (5)   │   Black (0)      │  DMZ Blue (6)│
+#   │  Blue (6)    │   Black (0)      │  DMZ Blue (6)│
 #   │  cols 0–12   │   cols 13–27     │  cols 28–39  │
 #   │  SCORE ZONE  │   NEUTRAL ZONE   │  SAFE ZONE   │
 #   └──────────────┴──────────────────┴──────────────┘
@@ -19,7 +19,7 @@
 #     13–37 consecutive ticks = +3 points/tick
 #     38+   consecutive ticks = +5 points/tick
 #   Score ticks every 20 frames (~3 Hz at 50 fps).
-#   Leaving the green zone resets the consecutive tick counter.
+#   Leaving the score zone resets the consecutive tick counter.
 #
 # Neutral zone (cols 13–27):
 #   No score accrual, no DMZ protection.  Danger zone.
@@ -32,9 +32,10 @@
 #     Base colour is blue (6); the static overdraws it.
 #
 # HUD header (row 0):
-#   White (colour 1) across all 40 columns.
+#   Black background (colour 0); text in white (colour 1).
 #   Displays:  "score: XXXXX  lives: X lv: X"
-#   Behaviour DSL handles the display_text / display_number calls.
+#   Behaviour DSL handles the display_text / display_number calls;
+#   only the text positions get white colour RAM.
 #
 # Splash screen:
 #   All colour RAM black.  Side bars (cols 0–5 and 34–39) shimmer
