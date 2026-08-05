@@ -1,0 +1,140 @@
+;; sound-demo game_logic.acme — SID preset showcase
+;; Static screen layout handled by behaviour DSL (behaviors.yaml).
+;; This file: input, sound trigering, dynamic preset name display.
+
+    jmp demo_start
+
+preset_idx:  !byte 0
+preset_names:
+    !scr "beep", 0, 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "boop", 0, 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "coin", 0, 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "hit", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "explosion", 0, 0, 0, 0
+    !scr "alarm", 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "laser", 0, 0, 0, 0, 0, 0, 0, 0
+    !scr "powerup", 0, 0, 0, 0, 0, 0
+NUM_PRESETS = 8
+fire_was:   !byte $10    ; previous fire state
+jptr:       !word 0      ; indirect jump pointer
+
+jtbl:
+    !word sfx_beep
+    !word sfx_boop
+    !word sfx_coin
+    !word sfx_hit
+    !word sfx_explosion
+    !word sfx_alarm
+    !word sfx_laser
+    !word sfx_powerup
+
+demo_start:
+    jsr show_name
+
+main:
+    jsr sfx_gate_off
+    jsr sfx_tick_all
+
+    ;; Read SPACE (keyboard column 7)
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10
+    beq do_next
+
+    ;; Read joystick fire (port 2)
+    lda #$00
+    sta $dc02
+    lda $dc00
+    and #$10
+    tax
+    lda #$ff
+    sta $dc02
+    txa
+    bne no_fire
+    lda fire_was
+    bne do_next
+    jmp no_fire
+
+do_next:
+    lda fire_was
+    bne dm_go
+    lda #$10
+    sta fire_was
+    jmp main
+no_fire:
+    lda #$10
+    sta fire_was
+
+dm_wait:
+    lda frame_ready
+    beq dm_wait
+    lda #0
+    sta frame_ready
+    jmp main
+
+dm_go:
+    lda #0
+    sta fire_was
+    jsr sfx_silence
+    inc preset_idx
+    lda preset_idx
+    cmp #NUM_PRESETS
+    bcc dm_play
+    lda #0
+    sta preset_idx
+
+dm_play:
+    jsr show_name
+    lda preset_idx
+    asl
+    tax
+    lda jtbl, x
+    sta jptr
+    lda jtbl+1, x
+    sta jptr+1
+    jmp (jptr)
+
+;; ============================================================
+;; Show preset name at row 19, col 10 (next to "playing:")
+;; ============================================================
+show_name:
+    ldx #9
+    lda #$20
+sn_clr:
+    sta $0400+19*40+10, x
+    dex
+    bpl sn_clr
+
+    lda preset_idx
+    ldx #9
+    jsr mul_x
+    tax
+    ldy #0
+sn_loop:
+    lda preset_names, x
+    beq sn_done
+    sta $0400+19*40+10, y
+    lda #1
+    sta $d800+19*40+10, y
+    iny
+    inx
+    cpy #9
+    bne sn_loop
+sn_done:
+    rts
+
+mul_x:
+    stx m_tmp
+    tax
+    lda #0
+mx_loop:
+    cpx #0
+    beq mx_done
+    clc
+    adc m_tmp
+    dex
+    jmp mx_loop
+mx_done:
+    rts
+m_tmp: !byte 0

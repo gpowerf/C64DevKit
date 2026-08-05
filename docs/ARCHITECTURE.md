@@ -290,9 +290,8 @@ monitor.disconnect()
 
 ## Current limitations
 
-- Sprite update in codegen only handles the first sprite (index 0)
-- Behavior actions (`behaviors.yaml`) are parsed but not compiled to assembly — game logic must be written by hand in `routines/`
-- SID macros provide register constants only, no note-playing or instrument macros
+- Sprite update in fallback path (no behaviors) only handles the first sprite — use the behaviour DSL for multi-sprite control
+- SID macros provide register constants and play_note support; further ADSR/instrument macros are work-in-progress
 - No support for multicolor bitmap mode or extended background color mode
 - No disk I/O or multi-load game support
 - No raster split or custom IRQ configuration beyond the default frame timer

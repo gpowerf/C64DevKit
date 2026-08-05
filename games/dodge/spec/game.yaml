@@ -1,12 +1,60 @@
-# Screen configuration
-mode: hires                # hires character mode
-charset: 0x3800            # ROM charset copied here at startup
-screen_ram: 0x0400
-background_color: 0        # black (overridden by color RAM zones)
-border_color: 11           # dark gray
+# =============================================================================
+# Sprite Dodge — Screen Configuration
+# =============================================================================
+#
+# The game uses hires character mode with a 3-zone colour RAM layout.
+# The screen is filled with solid blocks ($A0) so the colour RAM zones
+# are fully visible as coloured vertical bars. Row 0 is the HUD header.
+#
+# Zone layout (rows 1–24):
+#   ┌──────────────┬──────────────────┬──────────────┐
+#   │  Green (5)   │   Black (0)      │  DMZ Blue (6)│
+#   │  cols 0–12   │   cols 13–27     │  cols 28–39  │
+#   │  SCORE ZONE  │   NEUTRAL ZONE   │  SAFE ZONE   │
+#   └──────────────┴──────────────────┴──────────────┘
+#
+# Score zone (cols 0–12):
+#   Player earns points here while X < 128.  Tiered scoring:
+#     0–12  consecutive ticks = +2 points/tick
+#     13–37 consecutive ticks = +3 points/tick
+#     38+   consecutive ticks = +5 points/tick
+#   Score ticks every 20 frames (~3 Hz at 50 fps).
+#   Leaving the green zone resets the consecutive tick counter.
+#
+# Neutral zone (cols 13–27):
+#   No score accrual, no DMZ protection.  Danger zone.
+#
+# Safe zone / DMZ (cols 28–39):
+#   Collision immunity while player X >= 224 (low byte), MSB clear.
+#   Entry penalty: −5 points on first frame in zone.
+#   Visual: continuous LFSR colour noise refeshed every 3rd frame.
+#     Random colour (0–15) per cell, à la Yars' Revenge.
+#     Base colour is blue (6); the static overdraws it.
+#
+# HUD header (row 0):
+#   White (colour 1) across all 40 columns.
+#   Displays:  "score: XXXXX  lives: X lv: X"
+#   Behaviour DSL handles the display_text / display_number calls.
+#
+# Splash screen:
+#   All colour RAM black.  Side bars (cols 0–5 and 34–39) shimmer
+#   with the same DMZ LFSR noise every 3rd frame.
+#   Title:  "last star system"  — white,   row 10, col 12
+#   Sub:    "press fire to play" — lt.grey (15), row 14, col 11
+#   Credit: "by: gpowerf"    — lt.grey (15), row 23, col 14 (itch.io handle)
+#   SPACE or joystick port 2 fire transitions to GAME_PLAYING
+#   All sprites hidden ($D015=0) during splash.
+#
+# Game over screen:
+#   "game over"          — white, row 12, col 16
+#   "press space to play" — white, row 13, col 13
+#   Row 12–13 colour RAM set to white (overrides zone colours).
+#   SPACE jumps to restart (reset score, lives, level, positions).
+#   Background drone sound on voice 1 during game-over wait.
+# =============================================================================
 
-# Color RAM split into 3 vertical zones by game init:
-#   green (cols  0-12): score zone
-#   black (cols 13-27): neutral zone
-#   dmz  (cols 28-39):  safe zone — Yars' Revenge style digital noise
-#                        (LFSR random colour static, full-zone refresh)
+mode: hires
+charset: 0x3800            # ROM charset copied at init by framework codegen
+screen_ram: 0x0400
+background_color: 0        # black (overridden by colour RAM zones during init)
+border_color: 11           # dark grey

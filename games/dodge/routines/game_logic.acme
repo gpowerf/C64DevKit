@@ -2070,9 +2070,21 @@ do_splash:
     lda #$7f
     sta $dc00
     lda $dc01
-    and #$10             ; SPACE to start
-    bne .ds_wait         ; loop back — never returns to main_loop
+    and #$10             ; 0 = SPACE pressed
+    beq .ds_start
 
+    ;; Check joystick port 2 fire
+    lda #$00
+    sta $dc02            ; set port A all inputs
+    lda $dc00
+    and #$10             ; 0 = fire pressed
+    tax                  ; save fire state
+    lda #$ff
+    sta $dc02            ; restore keyboard mode
+    txa
+    bne .ds_wait         ; fire not pressed → wait
+
+.ds_start:
     lda #0
     sta init_done         ; force do_init to re-run (overwrites splash with game screen)
     lda #$03             ; enable sprites 0+1
@@ -2175,18 +2187,31 @@ draw_splash:
     ldx #0
 .s_slp:
     lda ds_press, x
-    beq .s_done
+    beq .s_cred
     sta $0400+14*40+11, x
     lda #15
     sta $d800+14*40+11, x
     inx
     bne .s_slp
 
+.s_cred:
+    ;; Credit in light gray at row 22, col 14
+    ldx #0
+.s_clp:
+    lda ds_credit, x
+    beq .s_done
+    sta $0400+22*40+14, x
+    lda #15
+    sta $d800+22*40+14, x
+    inx
+    bne .s_clp
+
 .s_done:
     rts
 
 ds_title:  !scr "last star system", 0
-ds_press:  !scr "press space to play", 0
+ds_press:  !scr "press fire to play", 0
+ds_credit: !scr "by: gpowerf", 0
 
 * = $2140
     !bin "assets/sprites/rock.spr"

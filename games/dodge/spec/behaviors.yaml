@@ -1,5 +1,94 @@
-# Sprite Dodge — HUD and scoring via behavior DSL
+# =============================================================================
+# Sprite Dodge — Complete Game Specification
+# =============================================================================
+#
+# The player controls a ship avoiding an enemy skull and asteroids.
+# Score accumulates while the ship stays in the green zone (left side).
+# The DMZ (right side, cols 28–39) provides collision immunity at a cost.
+# Level increases every 1000 points; enemy speed and asteroid count rise.
+#
+# Architecture note:
+#   The behaviour DSL handles the HUD display (display_text / display_number
+#   actions).  All other game systems — input, AI, collision, state machine,
+#   scoring, spawning, sound, visual effects — are implemented in the custom
+#   assembly routine `routines/game_logic.acme`.  This file documents every
+#   system so the game can be recreated from scratch.
+#
+# Call order each frame (generated main loop):
+#   1. behaviours_update  (generated from actions in this file)
+#   2. jsr game_logic     (user routine — game_logic.acme)
+#
+# =============================================================================
+# Runtime Variables (declared at top of game_logic.acme, all absolute-addressed)
+# =============================================================================
+#
+#   Name         Size   Init     Description
+#   ──────────── ────── ──────── ───────────────────────────────────────────
+#   score        2 B    0       16-bit score (little-endian, lo then hi)
+#   lives        1 B    3       Remaining lives
+#   enemy_x      1 B    100     Enemy logical X (software, not VIC register)
+#   enemy_y      1 B    80      Enemy logical Y
+#   enemy_init   1 B    0       Set to 1 after first-frame enemy position init
+#   hit_timer    1 B    0       Collision cooldown (decremented each frame)
+#   snd_timer    1 B    0       Sound duration countdown
+#   state        1 B    3       State machine: 0=playing 1=dying 2=gameover 3=splash
+#   state_tmr    1 B    0       Dying-state timer (150 frames ≈ 3 sec)
+#   score_tmr    1 B    0       Countdown to next score tick (20 frames)
+#   zone_ticks   1 B    0       Consecutive green-zone scoring frames
+#   flash_tmr    1 B    0       Death flash toggle timer (4-frame cycle)
+#   init_done    1 B    0       One-time init guard
+#   splash_done  1 B    0       Splash screen rendered flag
+#   go_drawn     1 B    0       Game-over screen drawn flag
+#   speed_ctr    1 B    0       Fractional-speed accumulator
+#   last_safe    1 B    0       Was player in DMZ last frame? (0=no, 1=yes)
+#   player_dir   1 B    0       Direction: 0=right 1=left 2=up 3=down
+#   dmz_seed     1 B    $5A     Galois LFSR state for DMZ noise + asteroid shuffle
+#   dmz_timer    1 B    1       DMZ refresh countdown (refreshes at 0, resets to 3)
+#   dmz_col      1 B    0       DMZ column index (unused, historical)
+#   dmz_row      1 B    1       DMZ row index (unused, historical)
+#   level        1 B    1       Difficulty level (1–5+, clamped to 5 for tables)
+#   prev_k       1 B    0       Previous score-hi-byte threshold for level-up
+#   speed_frac   1 B    128     Enemy fractional speed (128 = 25 px/s at 50 fps)
+#   ast_timer    1 B    40      Countdown to next asteroid spawn
+#   ast_active   1 B    0       Bitmask: bit0=ast0, bit1=ast1, bit2=ast2
+#   ast_msb      1 B    0       $D010 MSB bits for asteroid X ≥ 256
+#   ast_x[3]     3 B    —       Asteroid X positions
+#   ast_y[3]     3 B    —       Asteroid Y positions
+#   ast_dx[3]    3 B    —       Asteroid X velocity (signed)
+#   ast_dy[3]    3 B    —       Asteroid Y velocity (signed)
+#   ast_vx       1 B    —       Temp: spawn X velocity
+#   ast_vy       1 B    —       Temp: spawn Y velocity
+#   ast_warn_dir 1 B    255     Pre-rolled spawn direction: 0=bot 1=top 2=right 3=left
+#   ast_next_vx  1 B    —       Pre-rolled spawn X velocity
+#   ast_next_vy  1 B    —       Pre-rolled spawn Y velocity
+#   ast_warn_x   1 B    —       Pre-rolled spawn X position
+#   ast_warn_y   1 B    —       Pre-rolled spawn Y position
+#   c_saved      1 B    0       Saved $D01E value for multi-check in same frame
+#   cheat_spc    1 B    $FF     Previous SPACE state for edge detection
+#
+#   Framework-provided (accessible from routines):
+#     frame_ready    1 B    —   Set to 1 after raster IRQ, cleared after use
+#     joystick_state 1 B    —   Joystick state, active high (unused; WASD+joy inline)
+#     joystick_prev  1 B    —   Previous frame state (unused)
+#     random         1 B    —   Independent Galois LFSR, advanced each frame
+#
 
+
+# =============================================================================
+# HUD Display — rendered every frame by behaviour DSL
+# =============================================================================
+#
+# Row 0 header, white on black:
+#   "score: XXXXX  lives: X lv: X"
+#
+# score    — 5-digit decimal from 16-bit variable
+# lives    — 1-digit decimal
+# level    — 1-digit decimal
+#
+# The behaviour DSL writes PETSCII text and colour RAM at the specified
+# row/col positions.  The zone colours on row 0 are overwritten with
+# white (colour 1) during one-time init.
+#
 behaviors:
   - name: hud
     type: on_frame
@@ -10,3 +99,661 @@ behaviors:
       - display_number: {variable: lives, row: 0, col: 19, digits: 1, color: 1, size: 1}
       - display_text: {text: "lv:", row: 0, col: 22, color: 1}
       - display_number: {variable: level, row: 0, col: 25, digits: 1, color: 1, size: 1}
+
+
+# =============================================================================
+#   END OF BEHAVIOUR DSL
+# ─────────────────────────────────────────────────────────────────────────────
+#   All systems below are implemented in routines/game_logic.acme.
+#   Documented here as the canonical game design reference.
+# =============================================================================
+
+
+# =============================================================================
+# System 1 — State Machine
+# =============================================================================
+#
+# States (defined as constants in assembly):
+#   GAME_SPLASH  = 3   Title screen, DMZ side-bar shimmer, SPACE to start
+#   GAME_PLAYING = 0   Normal gameplay
+#   GAME_DYING   = 1   Player just hit; flash + timer before respawn
+#   GAME_OVER    = 2   Lives exhausted; "game over" + SPACE to restart
+#
+# Transitions:
+#   SPLASH → PLAYING     SPACE pressed (re-runs do_init, enables sprites)
+#   PLAYING → DYING       Player/enemy collision OR asteroid collision
+#                            (requires: hit_timer==0, player not in DMZ,
+#                             distance gate < 18 px)
+#   DYING → PLAYING       150-frame timer expires + lives > 0
+#                            (player sprite flashes at 4-frame interval)
+#   DYING → GAME_OVER     150-frame timer expires + lives == 0
+#   GAME_OVER → PLAYING   SPACE pressed (calls restart subroutine)
+#
+# Frame dispatch logic:
+#   1. Always run dmz_do (DMZ visual refresh if timer expired)
+#   2. If SPLASH: jump to do_splash, own frame loop (bypasses everything)
+#   3. Else: keyboard + cheat_keys + player animation + level_update +
+#            ast_update + radar_do
+#   4. If PLAYING: enemy_do + score_do + collision_do + ast_collision
+#   5. If DYING:   do_die (flash, timer, respawn or game over)
+#   6. If GAME_OVER: do_over (draw text, wait for SPACE, restart)
+#
+
+
+# =============================================================================
+# System 2 — One-Time Init (do_init)
+# =============================================================================
+#
+# Runs exactly once at startup (guarded by init_done flag).
+# Does NOT run on restart (only init_done reset by splash→play transition).
+#
+# Steps:
+#   1. Seed LFSR:  dmz_seed = $D012 XOR $5A  (raster-line + constant)
+#   2. Set border to dark grey (11)
+#   3. Fill screen RAM with $A0 (solid block glyph) — this makes the
+#      colour-RAM zones visible as solid vertical bars
+#   4. Paint colour RAM with 3-zone layout (rows 1–24):
+#        cols 0–12:  green (5)
+#        cols 13–27: black (0)
+#        cols 28–39: blue  (6) — base colour under DMZ static
+#   5. Paint row 0 colour RAM white (1) for HUD header
+#   6. Init enemy VIC position from enemy_x / enemy_y
+#      Clear $D010 bit 1 (enemy MSB)
+#   7. Call dmz_init — fill entire DMZ (288 cells) with LFSR noise once
+#   8. Init asteroid sprites:
+#        Set pointers $07FA/$07FB/$07FC = $85  (all point to rock.spr)
+#        Set colours: sprite 2=yellow(7), 3=orange(8), 4=light-red(10)
+#        Place off-screen: X=0, Y=250
+#   9. Init radar sprite:
+#        Set pointer $07FD = $86
+#        Set colour: yellow(7)
+#        Place off-screen: X=0, Y=250
+#
+# DMZ initial fill (dmz_init):
+#   For each of 288 cells (cols 28–39, rows 1–24):
+#     Advance LFSR, mask to 0–7, pick from palette:
+#       dmz_colors = [6(blue), 14(lt.blue), 3(cyan), 4(purple),
+#                     8(orange), 10(lt.red), 15(lt.grey), 1(white)]
+#     Write to colour RAM.
+#   Uses conditional LFSR (Galois: shift right, XOR $2D if carry out,
+#   guarantee non-zero by setting to $5A if result is zero).
+#
+
+
+# =============================================================================
+# System 3 — Player Movement (keyboard_read)
+# =============================================================================
+#
+# Input sources (both active simultaneously):
+#   Keyboard:  WASD via CIA1 column-scan  ($DC00/$DC01)
+#   Joystick:  Port 2 via CIA1 PRA read   ($DC00, active low)
+#
+# Keyboard matrix reads:
+#   W (up):    write $FD → read $DC01, check bit 1 ($02)  — column 1, row 1
+#   S (down):  write $FD → read $DC01, check bit 4 ($10)  — column 1, row 4
+#   A (left):  write $FD → read $DC01, check bit 2 ($04)  — column 1, row 2
+#   D (right): write $FB → read $DC01, check bit 2 ($04)  — column 2, row 2
+#
+# Joystick port 2:
+#   Write $00 → $DC02 (port A = all inputs)
+#   Read $DC00, eor #$FF (invert to active high)
+#   Restore $FF → $DC02 (port A = all outputs, keyboard mode)
+#   Bits: 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT
+#
+# Movement (applied identically for keyboard and joystick):
+#   UP:    If Y > 50: DEC $D001.  Set player_dir = 2.
+#   DOWN:  If Y < 229: INC $D001.  Set player_dir = 3.
+#   LEFT:  If X > 24 (or MSB set): decrement X with full $D010 handling.
+#          Set player_dir = 1.
+#          If X=0 and MSB set: clear MSB, then decrement.
+#   RIGHT: If X < DMZ edge (X < 64 requires special handling):
+#          Set player_dir = 0.
+#          If X=255: increment + set MSB.
+#          Else: increment X.
+#
+# Player directional animation:
+#   Every frame: sprite pointer $07F8 = $80 + player_dir
+#   This selects one of four 64-byte sprite data blocks:
+#     $80 → $2000 (right), $81 → $2040 (left),
+#     $82 → $2080 (up),    $83 → $20C0 (down)
+#
+# X-position constraint detail:
+#   The DMZ boundary is at X=224 (low byte, MSB=0).
+#   Normal play: X <= 343 (224+119 via MSB handoff… actually bounded
+#   at 319 w/ MSB set, but the right-edge check only runs when X<64
+#   with MSB clear, effectively keeping the player left of the DMZ).
+#
+# No `joystick_state` is populated — the routine directly modifies VIC registers.
+#
+
+
+# =============================================================================
+# System 4 — Scoring (score_do)
+# =============================================================================
+#
+# Three zones, defined by player X position and $D010 MSB:
+#   ┌─────────┬───┬───────────────────────────────────────────────────┐
+#   │ Zone    │ X │ Behaviour                                         │
+#   ├─────────┼───┼───────────────────────────────────────────────────┤
+#   │ DMZ     │ ≥224 (MSB=0) or MSB=1 │ −5 on entry, no score, reset │
+#   │ Neutral │ 128–223   │ No score, reset zone_ticks               │
+#   │ Green   │ 24–127    │ Tiered score every 20 frames              │
+#   └─────────┴───────────┴──────────────────────────────────────────┘
+#
+# DMZ entry penalty:
+#   If MSB set OR X >= 224 (low byte): player is in DMZ.
+#   On first frame entering DMZ (last_safe==0): −5 points.
+#   Reset zone_ticks to 0.
+#   Set last_safe = 1.
+#
+# Neutral zone (128 ≤ X < 224, MSB clear):
+#   Reset zone_ticks to 0.
+#   No score.
+#
+# Green zone (X < 128, MSB clear):
+#   Every 20 frames (score_tmr counts 0..20):
+#     Increment zone_ticks.
+#     zone_ticks < 13:  +2 points
+#     zone_ticks < 38:  +3 points
+#     zone_ticks ≥ 38:  +5 points
+#   (At 50 fps, 20 frames = 2.5 ticks/sec.
+#    Tier thresholds: 0–5s → +5/s, 5–15s → +7.5/s, 15s+ → +12.5/s)
+#
+# Leaving green or neutral zones → leaving DMZ:
+#   last_safe reset to 0 so next DMZ entry triggers penalty again.
+#
+# Score wraps on overflow (16-bit, 0–65535).
+#
+
+
+# =============================================================================
+# System 5 — Enemy AI (enemy_do)
+# =============================================================================
+#
+# The enemy skull chases the player at level-dependent speed.
+#
+# Logic:
+#   1. First frame (enemy_init==0): copy enemy_x / enemy_y to VIC registers,
+#      set enemy_init=1, return.
+#
+#   2. Fractional speed accumulator:
+#        speed_ctr += speed_frac   (8-bit add with carry)
+#        If no carry: return (skip movement this frame).
+#        Effective speed = speed_frac/256 * 50 px/s.
+#          128/256 * 50 = 25 px/s  (level 1–3)
+#          154/256 * 50 ≈ 30 px/s  (level 4)
+#          179/256 * 50 ≈ 35 px/s  (level 5)
+#
+#   3. Movement (when carry set):
+#        Compare player VIC X vs enemy_x:
+#          Player X > enemy_x → inc enemy_x (move right)
+#          Player X < enemy_x → dec enemy_x (move left)
+#          Equal → skip X movement
+#
+#        Compare player VIC Y vs enemy_y:
+#          Player Y > enemy_y → inc enemy_y (move down)
+#          Player Y < enemy_y → dec enemy_y (move up)
+#          Equal → skip Y movement
+#
+#   4. Clamp enemy position:
+#        X clamped to [24, 224]
+#        Y clamped to [50, 229]
+#
+#   5. Write enemy_x / enemy_y to VIC registers ($D002/$D003).
+#      Clear $D010 bit 1 (enemy never uses MSB — max X=224).
+#
+#   Enemy uses software variables for sub-pixel precision (the speed
+#   accumulator skips frames), then writes to VIC registers every
+#   movement frame.
+#
+
+
+# =============================================================================
+# System 6 — Collision (collision_do + ast_collision)
+# =============================================================================
+#
+# Player-enemy collision (collision_do):
+#
+#   Pre-checks:
+#     - hit_timer > 0 → decrement, return (cooldown active)
+#     - Player in DMZ (X ≥ 224 or MSB set) → no collision (immune)
+#
+#   Hardware check:
+#     - Read $D01E, save to c_saved (for asteroid check later in same frame)
+#     - Test bit 1 (sprite 0 vs sprite 1)
+#     - No bit → return
+#
+#   Distance gate:
+#     Accept collision ONLY if |player_X − enemy_X| < 18 AND
+#                              |player_Y − enemy_Y| < 18
+#     This prevents false positives from edge-overlap hardware triggers
+#     (VIC-II collision fires when any pixel lines overlap, even if the
+#     visible shapes don't touch).  Computes abs(Xdiff) and abs(Ydiff)
+#     via subtract, branch on carry, EOR #$FF + ADC #1 if negative.
+#     If either distance ≥ 18, reject (no collision).
+#
+#   Collision response:
+#     1. Write c_saved back to $D01E (acknowledge)
+#     2. Decrement lives
+#     3. Respawn enemy on opposite side:
+#          If player X < 128: spawn at X=200
+#          Else:              spawn at X=50
+#          If player Y < 140: spawn at Y=210
+#          Else:              spawn at Y=60
+#        (This puts the enemy roughly opposite the player.)
+#     4. Play death sound: voice 1, freq 5000, saw wave, attack=1,
+#        sustain=0, release=0, volume=15, 20-frame duration
+#     5. Set state = DYING, state_tmr = 150, flash_tmr = 0
+#     6. Return (skip asteroid check — state already changed)
+#
+# Player-asteroid collision (ast_collision):
+#
+#   Pre-checks:
+#     - State != PLAYING → return
+#     - Player in DMZ → return
+#     - hit_timer > 0 → return
+#
+#   Hardware check:
+#     - Test c_saved bits 2–4 (sprite 0 vs sprites 2/3/4)
+#     - No bits set → return
+#
+#   Distance gate (per active asteroid slot):
+#     For each active slot (0→2):
+#       If |player_X − asteroid_X| < 18 AND |player_Y − asteroid_Y| < 18:
+#         Real hit detected
+#     Same abs-diff calculation as enemy collision.
+#
+#   Collision response (same as enemy):
+#     1. Acknowledge $D01E
+#     2. Decrement lives
+#     3. Set state = DYING, state_tmr = 150, flash_tmr = 0
+#     4. Clear hit_timer
+#     5. Play death sound (voice 1, freq 5000, saw, 20 frames)
+#
+# Hit invincibility:
+#   After respawning from DYING: hit_timer = 150 (≈ 3 sec invincibility).
+#   Collision is ignored until hit_timer reaches 0.
+#
+# After restart: hit_timer = 10 (brief grace period).
+#
+
+
+# =============================================================================
+# System 7 — Dying State (do_die)
+# =============================================================================
+#
+# Flash effect:
+#   flash_tmr counts 0→4 each cycle.
+#   When flash_tmr reaches 0:
+#     Toggle sprite 0 enable bit in $D015 (EOR #$01).
+#     Reset flash_tmr = 4.
+#   Visible as player flickering on/off at ~6 Hz.
+#
+# Timer:
+#   state_tmr decrements each frame.
+#   When it reaches 0:
+#     If lives > 0:
+#       Respawn: re-enable sprites ($D015=$03), hit_timer=150,
+#       set state=PLAYING, enemy position synced from variables,
+#       clear go_drawn.
+#     If lives == 0:
+#       Disable enemy sprite ($D015=$01, only player visible),
+#       set state=GAME_OVER, clear go_drawn.
+#
+# During dying: enemy and asteroids continue to be updated so they
+# don't freeze — only collision checks are suppressed (by state != PLAYING
+# gates in collision_do and ast_collision).
+#
+
+
+# =============================================================================
+# System 8 — Game Over (do_over)
+# =============================================================================
+#
+# One-shot display (go_drawn flag):
+#   Calls draw_gameover on first frame:
+#     - Set colour RAM rows 12–13 all white (1) — overrides zone colours
+#     - Clear screen RAM rows 12–13 (fill with space $20)
+#     - Write "game over" at row 12, col 16
+#     - Write "press space to play" at row 13, col 13
+#     - Text uses !scr for PETSCII conversion (lowercase ASCII → screen codes)
+#   Play game-over sound:
+#     - Voice 1, freq 5000, saw wave + gate, attack=1, sustain=0,
+#       release=0, volume=15, 30-frame duration
+#     - Sound auto-clears when timer expires (sound_tick)
+#
+# Wait loop (subsequent frames):
+#   - Run sound_tick (decrement counter, gate-off voice 1 when expired)
+#   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4)
+#   - If SPACE pressed: call restart, return
+#   - Else: loop
+#
+# Restart subroutine:
+#   1. Reset variables: lives=3, score=0, state=PLAYING, state_tmr=0,
+#      snd_timer=0, speed_ctr=0, go_drawn=0, last_safe=0, zone_ticks=0
+#   2. hit_timer = 10 (initial grace period)
+#   3. Reset player position: X=160, Y=120, clear MSB bit 0
+#   4. Reset enemy position: X=100, Y=80, clear MSB bit 1
+#   5. Enable sprites 0+1 ($D015=$03)
+#   6. Reset asteroid system:
+#        level=1, prev_k=0, speed_frac=128, ast_timer=40
+#        ast_active=0, ast_msb=0, ast_warn_dir=255
+#        ast_warn_x=0, ast_warn_y=0
+#        All 3 asteroid VIC positions off-screen (X=0, Y=250)
+#   7. Restore colour RAM rows 12–13 to zone colours (green 0–12,
+#      black 13–27, blue 28–39)
+#   8. Clear screen RAM rows 12–13 (fill with $A0 solid blocks)
+#
+# Note: do_init is NOT re-run.  Only restart.  (do_init is only re-run
+#       on the splash→play transition, which resets init_done=0.)
+#
+
+
+# =============================================================================
+# System 9 — Level System (level_update)
+# =============================================================================
+#
+# Level-up trigger:
+#   When score high byte exceeds prev_k:
+#     prev_k = score_hi   (tracks highest 256-point threshold seen)
+#     level++
+#     If level > 5: clamp to 5 for table lookup
+#     Apply new difficulty from tables
+#     Play level-up chirp on voice 3
+#
+# Difficulty tables:
+#   level_speeds:  [128,  128,  128,  154,  179]  = 25, 25, 25, 30, 35 px/s
+#   level_spawns:  [40,   40,   30,   25,   20]   = asteroid spawn interval (frames)
+#
+#   Level 1:  25 px/s,   spawn every 40 frames,  0 asteroids (≤ level 2 gate)
+#   Level 2:  25 px/s,   spawn every 40 frames,  max 1 asteroid
+#   Level 3:  25 px/s,   spawn every 30 frames,  max 1 asteroid
+#   Level 4:  30 px/s,   spawn every 25 frames,  max 2 asteroids
+#   Level 5+: 35 px/s,   spawn every 20 frames,  max 3 asteroids
+#
+#   Level 1 has no asteroid spawns (ast_spawn returns if level < 2).
+#
+# Level-up sound:
+#   Voice 3: freq = $1F40 (8000 Hz), saw + gate, attack=2 decay=9,
+#            sustain=0 release=0, volume=15, 15-frame duration
+#
+# On reaching level 2: also call ast_preview to pre-roll first asteroid
+#   warning direction immediately.
+#
+
+
+# =============================================================================
+# System 10 — Asteroid System (ast_spawn + ast_update + ast_preview)
+# =============================================================================
+#
+# The asteroid system manages three VIC-II hardware sprites (indices 2–4)
+# that fly across the screen in straight lines from the four edges.
+# All three share the same rock sprite data ($2140, pointer $85).
+# Active slots are tracked in ast_active bitmask.
+#
+# --- Spawn direction table (ast_angles, 32 signed-byte pairs) ---
+#
+# 8 directions, each with 4 speed variants:
+#   Bottom→up:     dy∈{−3,−2,−1}, dx∈{−1,0,+1}
+#   Top→down:      dy∈{+3,+2,+1}, dx∈{−1,0,+1}
+#   Right→left:    dx∈{−3,−2,−1}, dy∈{−1,0,+1}
+#   Left→right:    dx∈{+3,+2,+1}, dy∈{−1,0,+1}
+#
+# --- Spawning (ast_spawn, called when ast_timer reaches 0) ---
+#
+# 1. Check level: if level < 2, return (no asteroids).
+#
+# 2. Count active asteroids.  Compare with level max:
+#      L2–L3: max 1  |  L4: max 2  |  L5+: max 3
+#    If at or above max, shuffle LFSR and return.
+#
+# 3. If ast_warn_dir != 255 (pre-rolled):
+#      Use pre-rolled velocity and position, clear warn_dir.
+#    Else (random pick):
+#      Read CIA timer ($DC04) XOR raster ($D012), mask to $1F, ×2
+#      → index into ast_angles table.
+#
+# 4. Determine spawn edge from velocity:
+#      dy < 0  → Bottom edge:  Y=210, random X via LFSR (40–167)
+#      dy > 0  → Top edge:     Y=50,  random X via LFSR (40–167)
+#      dx < 0  → Right edge:   X=255, random Y via LFSR (50–229)
+#      dx ≥ 0  → Left edge:    X=24,  random Y via LFSR (50–229)
+#
+# 5. Find free slot (0→2) where ast_active bit is clear.
+#    If all full, return.
+#
+# 6. Store position, velocity, set active bit, write VIC registers,
+#    clear MSB for this slot.
+#
+# 7. Shuffle LFSR, call ast_preview for next warning, return.
+#
+# 8. Reset spawn timer from level_spawns table.
+#
+# --- Movement (ast_update, runs every frame) ---
+#
+# For each active asteroid slot (0→2):
+#   Y:  ast_y += ast_dy   (signed 8-bit add, wraps at boundaries)
+#   X:  ast_x += ast_dx   (signed 8-bit add, handles MSB)
+#       If dx ≥ 0 and carry: set MSB bit for this slot
+#       If dx < 0: clear MSB bit for this slot
+#       (MSB handled via $D010 — ast_msb variable tracks bits)
+#
+#   Write to VIC registers ($D004/$D005, $D006/$D007, $D008/$D009)
+#   using indexed addressing (X register = slot index).
+#
+#   Despawn check:
+#     Y < 10 OR Y > 235 → despawn (clear active bit)
+#     X < 8            → despawn
+#     (Right-edge asteroids despawn via Y-bound; no right X bound needed
+#     since they exit right and hit Y bounds or fly off-screen with MSB.)
+#
+#   After movement loop: re-sync $D015 with ast_active bitmask.
+#     Only during PLAYING state.
+#     Bits 2–4 in $D015 correspond to asteroid slots 0–2.
+#
+# --- Preview / radar warning (ast_preview) ---
+#
+# Called after each spawn, and at level 2 init.
+# Pre-rolls the NEXT asteroid's direction and spawn position so the
+# radar sprite can show it in advance.
+#
+# 1. Only runs if state == PLAYING.
+# 2. Pick random angle (CIA XOR raster, same method as spawn).
+# 3. Store velocity in ast_next_vx, ast_next_vy.
+# 4. Compute spawn position (same edge rules as spawn) and store in
+#    ast_warn_x, ast_warn_y.
+# 5. Set ast_warn_dir (0=bottom, 1=top, 2=right, 3=left).
+# 6. Shuffle LFSR.
+#
+
+
+# =============================================================================
+# System 11 — Radar Warning Indicator (radar_do)
+# =============================================================================
+#
+# Sprite 5 (radar) shows the exact spawn position of the next asteroid
+# BEFORE it appears, giving the player a visual warning.
+#
+# Logic:
+#   If state != PLAYING → hide radar ($D015 bit 5 cleared)
+#   If ast_warn_dir == 255   → hide radar (no pre-rolled direction)
+#   Else:
+#     Position radar sprite (5) at the pre-rolled coordinates,
+#     pinned to the appropriate screen edge:
+#
+#     ast_warn_dir 0 (bottom): X = ast_warn_x,  Y = 229
+#     ast_warn_dir 1 (top):    X = ast_warn_x,  Y = 51
+#     ast_warn_dir 2 (right):  X = 230,         Y = ast_warn_y
+#     ast_warn_dir 3 (left):   X = 24,          Y = ast_warn_y
+#
+#   Enable sprite ($D015 | $20).
+#
+# The radar sprite data is a diamond crosshair:
+#   8×8 diamond at the centre of 24×21 grid, transparent elsewhere.
+#   Surrounding bytes are $00 (transparent).
+#
+
+
+# =============================================================================
+# System 12 — DMZ Visual Noise (dmz_do + dmz_init)
+# =============================================================================
+#
+# The safe zone (DMZ, cols 28–39, rows 1–24, 288 cells total) displays
+# continuous random-colour static, à la Yars' Revenge neutral zone.
+#
+# Refresh timer:
+#   dmz_timer counts down from 3 to 0 each frame.
+#   When it reaches 0: reset to 3, refresh all 288 cells.
+#   Refresh rate: 50/3 ≈ 16.7 Hz — fast enough to shimmer, slow enough
+#   to not strobe.
+#
+# Per-cell colour:
+#   For each cell in the 12×24 DMZ grid:
+#     Advance Galois LFSR (dmz_seed)
+#     AND with $0F → random colour 0–15
+#     Write directly to colour RAM at $D800 + row*40 + 28 + col
+#
+# The LFSR is a Galois 8-bit configuration:
+#   Shift right.  If carry (bit 0 was 1): XOR seed with $2D.
+#   If result is 0: set seed to $5A (prevents terminal zero state).
+#   Polynomial: x^8 + x^5 + x^3 + x^2 + 1  ($2D = %00101101)
+#
+# Row calculation uses d_mul40: row × 40 using (row << 3) + (row << 5).
+#
+# Initial fill (dmz_init):
+#   Called once during do_init.  Same process but uses a restricted
+#   palette: picks from dmz_colors table (8 colours, masked to 0–7).
+#   This gives a cooler blue/cyan/purple base before the full-range
+#   random static takes over.
+#
+# PALETTE REFERENCE:
+#   0=black  1=white    2=red      3=cyan
+#   4=purple 5=green    6=blue     7=yellow
+#   8=orange 9=brown   10=lt.red  11=dark grey
+#  12=mid grey 13=lt.green 14=lt.blue 15=lt.grey
+#
+
+
+# =============================================================================
+# System 13 — Sound Effects (sound_tick)
+# =============================================================================
+#
+# General pattern:
+#   - Set SID voice registers directly
+#   - Set snd_timer = duration in frames
+#   - sound_tick called each frame: decrements timer, auto-clears gate
+#     when timer reaches 0 (AND $D404 with $FE for voice 1, or equivalent)
+#
+# Three sound events:
+#
+#   Death (collision hit):
+#     Voice 1, freq $1388 (5000 Hz), saw wave ($21 = saw+gate),
+#     20 frames.  ADSR: attack=1 decay=0 sustain=0 release=0.
+#
+#   Level-up chirp:
+#     Voice 3, freq $1F40 (8000 Hz), saw wave ($21 = saw+gate),
+#     15 frames.  ADSR: attack=2 decay=0 sustain=0 release=0.
+#
+#   Game-over drone:
+#     Voice 1, freq $1388 (5000 Hz), saw wave ($21 = saw+gate),
+#     30 frames.  ADSR: attack=1 decay=0 sustain=0 release=0.
+#
+# All sounds use master volume = 15 ($0F → $D418).
+# No ADSR envelopes — sounds gate on, play at full volume, then gate off.
+# Duration is coarse (frame-level), not sample-accurate.
+#
+# SID voice register map (reference):
+#   Voice 1: $D400 (freq lo), $D401 (freq hi), $D402 (pw lo), $D403 (pw hi),
+#            $D404 (ctrl), $D405 (atk/dec), $D406 (sus/rel)
+#   Voice 3: $D40E (freq lo), $D40F (freq hi), $D410 (pw lo), $D411 (pw hi),
+#            $D412 (ctrl), $D413 (atk/dec), $D414 (sus/rel)
+#   Master:  $D418 (volume + filter mode)
+#
+
+
+# =============================================================================
+# System 14 — Splash Screen (do_splash + draw_splash + splash_bars)
+# =============================================================================
+#
+# Runs its OWN frame loop — completely bypasses the main loop's behaviours_update.
+# The splash routine owns frame_ready, advances it internally, and never returns
+# to the main loop until SPACE transitions to PLAYING.
+#
+# Initialisation (draw_splash, called once):
+#   1. Fill screen RAM ($0400–$07E7) with $A0 (solid block)
+#   2. Fill colour RAM ($D800–$DBE7) with 0 (black)
+#   3. Write title: "last star system" → row 10, col 12, colour white (1)
+#   4. Write prompt: "press fire to play" → row 14, col 11, colour lt.grey (15)
+#   5. Write credit: "by: gpowerf" → row 22, col 14, colour lt.grey (15)
+#   6. Text via !scr (lowercase ASCII → PETSCII screen codes)
+#
+# Frame loop (do_splash, runs every frame after draw):
+#   1. Disable all sprites ($D015 = 0)
+#   2. Wait for frame_ready (busy-wait on frame_ready==0, then clear it)
+#   3. Call splash_bars — shimmer side columns 0–5 and 34–39
+#   4. Check SPACE bar (write $7F → $DC00, read $DC01 bit 4)
+#      AND joystick port 2 fire (write $00 → $DC02, read $DC00 bit 4,
+#      restore $FF → $DC02)
+#   5. If either pressed:
+#        - Set init_done = 0  (forces do_init re-run with game screen)
+#        - Enable sprites 0+1 ($D015 = $03)
+#        - Set state = PLAYING
+#        - Return to main loop (splash never runs again)
+#      Else:
+#        - Jump back to step 1 (loop forever)
+#
+# Side bars (splash_bars, called from frame loop):
+#   - dmz_timer-style 3-frame cycle
+#   - Refresh cols 0–5 and 34–39 on every row (25 rows × 12 cols = 300 cells)
+#   - Per-cell: LFSR → random colour (AND $0F) → colour RAM
+#   - Uses d_mul40 for row×40 address calculation
+#   - Creates shimmer effect matching DMZ aesthetic
+#
+# Transition to gameplay:
+#   init_done = 0 causes do_init to run again next frame, overwriting
+#   the splash screen with the game's 3-zone colour RAM layout, HUD
+#   header, and sprite initialisation.
+#
+
+
+# =============================================================================
+# System 15 — Cheat Keys (cheat_keys)
+# =============================================================================
+#
+# SPACE bar (edge-triggered) cycles through levels 1–5:
+#   1 → 2 → 3 → 4 → 5 → 1 (wraps)
+#
+# Edge detection via cheat_spc:
+#   SPACE pressed: cheat_spc==$FF (was up) → edge → advance level
+#   SPACE held:    cheat_spc==0   (was down) → no action
+#   SPACE up:      cheat_spc = $10 (mark as not-pressed)
+#
+# On level change:
+#   1. Apply speed_frac from level_speeds table
+#   2. Apply score from level_scores table:
+#        [0, 1000, 2000, 3000, 4000] — gives approximate score for level
+#      Set prev_k = score_hi to prevent immediate level_update trigger
+#   3. If score != 0: play level-up chirp
+#   4. If level ≥ 2: check if asteroid count < max, spawn one if room
+#      (uses same edge / random-angle logic as normal spawn, bypasses timer)
+#   5. Reset ast_timer = 1 (fast next spawn)
+#
+# cheats.x65 or CHEAT_KEYS constant can disable (set to 0).
+#
+
+
+# =============================================================================
+# System 16 — DMZ Counter (score_do DMZ path)
+# =============================================================================
+#
+# DMZ entry tracking:
+#   - MSB bit set (X ≥ 256) always considered in DMZ
+#   - X low byte >= 224 (without MSB): in DMZ
+#   - Must NOT be in last_safe state AND not in DMZ for penalty:
+#       On entry: score −5, clamp to 0 on underflow
+#       Set last_safe = 1  (prevents re-penalty until leaving DMZ)
+#   - In DMZ: zone_ticks = 0  (no green-zone credit)
+#   - Leaving DMZ: last_safe = 0  (re-arms penalty for next entry)
+#
+# =============================================================================
+

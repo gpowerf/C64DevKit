@@ -1,0 +1,5 @@
+mode: hires
+charset: 0x3800
+screen_ram: 0x0400
+background_color: 0
+border_color: 6

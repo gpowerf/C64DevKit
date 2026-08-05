@@ -1,12 +1,57 @@
-# Sprite Dodge — sprites
+# =============================================================================
+# Sprite Dodge — Sprite Definitions
+# =============================================================================
+#
+# Six sprites total (VIC-II indices 0–5):
+#   ┌────┬──────────┬───────┬─────────────────────────────┐
+#   │ Idx│ Name     │ Colour│ Description                  │
+#   ├────┼──────────┼───────┼─────────────────────────────┤
+#   │  0 │ player   │   7   │ Ship, 4 directional frames   │
+#   │  1 │ enemy    │   2   │ Skull, chases player         │
+#   │  2 │ asteroid_0│  7   │ Rock, spawned at level 2+    │
+#   │  3 │ asteroid_1│  8   │ Rock, spawned at level 4+    │
+#   │  4 │ asteroid_2│ 10   │ Rock, spawned at level 5+    │
+#   │  5 │ radar    │   7   │ Diamond crosshair indicator  │
+#   └────┴──────────┴───────┴─────────────────────────────┘
+#
+# Memory layout (all sprites at `sprite_data` = $2000):
+#   $2000  ship_r.spr   (player, right)   ptr $80 → $07F8
+#   $2040  ship_l.spr   (player, left)    ptr $81 → $07F8
+#   $2080  ship_u.spr   (player, up)      ptr $82 → $07F8
+#   $20C0  ship_d.spr   (player, down)    ptr $83 → $07F8
+#   $2100  skull.spr    (enemy)           ptr $84 → $07F9
+#   $2140  rock.spr     (asteroids)       ptr $85 → $07FA–$07FC
+#   $2180  inline data  (radar)           ptr $86 → $07FD
+#
+# The framework uses `data_files` to allocate 4 sprite-pointer slots
+# for the player.  The directional pointer is updated every frame:
+#   $07F8 = $80 + player_dir
+# where player_dir ∈ {0=right, 1=left, 2=up, 3=down}.
+#
+# Asteroid sprites (2–4) share the same rock.spr data at $2140.
+# They are loaded outside the behaviour DSL by game_logic.acme
+# (do_init sets pointers $07FA–$07FC = $85; sprite positions and
+# visibility are managed by the asteroid system).
+#
+# Radar sprite (5) data is inline at $2180 — a small diamond crosshair
+# 8×8 pixels centred in a 24×21 grid, surrounded by transparent bytes.
+# =============================================================================
+
+# --- Movement bounds ---
+# Player:  X [24, DMZ edge (X<224 at low byte, MSB=0)],
+#          Y [50, 229] with upper/lower bounds enforced.
+# Enemy:   X [24, 224], Y [50, 229] — clamped to safe area.
+# Asteroid: despawn at Y < 10, Y > 235, or X < 8.
+#          X can exceed 255 (MSB handled via $D010) for right-edge spawns.
+
 sprites:
   - name: player
     index: 0
     x: 160
     y: 120
     color: 7               # yellow
-    multicolor: false
     enabled: true
+    multicolor: false
     data_file: "assets/sprites/ship_r.spr"
     data_files:
       right: "assets/sprites/ship_r.spr"
@@ -19,6 +64,6 @@ sprites:
     x: 100
     y: 80
     color: 2               # red
-    multicolor: false
     enabled: true
+    multicolor: false
     data_file: "assets/sprites/skull.spr"

@@ -1,13 +1,29 @@
-# Behavior definitions
-# Actions are compiled to 6502 assembly by the behavior DSL compiler.
-# Supported actions: read_joystick, update_sprite, set_sprite_pos,
-#                    inc_score, play_sound, check_collision, display_text
+# =============================================================================
+# Behaviour Definitions — Template
+# =============================================================================
+#
+# This file serves double duty:
+#   1. DSL input  — actions generate 6502 assembly
+#   2. Design doc  — comments describe all systems, even those in routines
+#
+# Supported triggers:
+#   on_frame      — runs every frame
+#   on_collision  — runs when hardware sprites overlap (adds cooldown support)
+#   on_timer      — runs every N frames (requires `every: N`)
+#
+# Supported actions:
+#   update_sprite, set_sprite_pos, inc_score, play_sound,
+#   display_text, display_number, enable_sprite, disable_sprite
+#
+# When the DSL can't express your logic, write it in routines/game_logic.acme
+# and document the system here in YAML comments.
+# =============================================================================
 
 behaviors:
   - name: move_player
     type: on_frame
     actions:
-      - update_sprite: player      # WASD to move sprite 0
+      - update_sprite: player      # WASD / joystick to move sprite 0
 
   - name: show_score
     type: on_frame
@@ -21,6 +37,7 @@ behaviors:
   - name: reset_on_collision
     type: on_collision
     sprites: [player, enemy]
+    cooldown: 30                   # frames before re-trigger
     actions:
       - set_sprite_pos:
           sprite: player

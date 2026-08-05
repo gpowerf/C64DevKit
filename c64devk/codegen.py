@@ -50,6 +50,7 @@ def generate_assembly(spec: "ProjectSpec") -> str:
         _emit_sprite_update(spec, lines)
 
     _emit_user_routines(spec, lines)
+    _emit_sound_presets(lines)
     _emit_sprite_data(spec, lines)
     _emit_routines_footer(spec, lines)
     return "\n".join(lines)
@@ -102,25 +103,22 @@ def _emit_init(spec: "ProjectSpec", init_addr: int, lines: list[str]) -> None:
     _emit_sprite_memory_setup(spec, lines)
     lines.append("")
 
-    if _behaviors_need_text(spec):
-        lines.append("\t;; Copy ROM charset to RAM for text display")
-        lines.append("\tsei")
-        lines.append("\tlda #$33")
-        lines.append("\tsta $01")
-        lines.append("\tldx #0")
-        lines.append(".ccloop:")
-        for page in range(8):
-            src = 0xD000 + page * 0x100
-            dst = spec.screen.charset_addr + page * 0x100
-            lines.append(f"\tlda ${src:04X}, x")
-            lines.append(f"\tsta ${dst:04X}, x")
-        lines.append("\tinx")
-        lines.append("\tbne .ccloop")
-        lines.append("\tlda #$37")
-        lines.append("\tsta $01")
-        lines.append("\tcli")
-    else:
-        lines.append("\tcli")
+    lines.append("\t;; Copy ROM charset to RAM for text display")
+    lines.append("\tsei")
+    lines.append("\tlda #$33")
+    lines.append("\tsta $01")
+    lines.append("\tldx #0")
+    lines.append(".ccloop:")
+    for page in range(8):
+        src = 0xD000 + page * 0x100
+        dst = spec.screen.charset_addr + page * 0x100
+        lines.append(f"\tlda ${src:04X}, x")
+        lines.append(f"\tsta ${dst:04X}, x")
+    lines.append("\tinx")
+    lines.append("\tbne .ccloop")
+    lines.append("\tlda #$37")
+    lines.append("\tsta $01")
+    lines.append("\tcli")
     lines.append("\tjsr init_sprites")
     lines.append("\tjmp main_loop")
     lines.append("")
@@ -209,6 +207,10 @@ def _emit_variables(lines: list[str]) -> None:
     lines.append("joystick_state:\t!byte 0")
     lines.append("joystick_prev:\t!byte 0")
     lines.append("random:\t!byte $5A")
+    lines.append("sfx_dur:\t!byte 0")
+    lines.append("sfx_step:\t!byte 0")
+    lines.append("sfx_tmp:\t!byte 0")
+    lines.append("sfx_kind:\t!byte 0")
     lines.append("")
 
 
@@ -404,6 +406,10 @@ def _emit_behavior_variables(spec: "ProjectSpec", lines: list[str]) -> None:
     for b in spec.behaviors:
         if b.type == "on_timer" and b.timer_every > 0:
             lines.append(f"beh_timer_{_safe_label(b.name)}:\t!byte {b.timer_every}")
+    lines.append("sfx_dur:\t!byte 0")
+    lines.append("sfx_step:\t!byte 0")
+    lines.append("sfx_tmp:\t!byte 0")
+    lines.append("sfx_kind:\t!byte 0")
     lines.append("")
 
 
@@ -892,6 +898,13 @@ def _emit_user_routines(spec: "ProjectSpec", lines: list[str]) -> None:
             lines.append(f"_{name}:")
             lines.append(f'\t!source "routines/{name}.acme"')
             lines.append("")
+
+
+def _emit_sound_presets(lines: list[str]) -> None:
+    """Include sound effect preset subroutines."""
+    lines.append("")
+    lines.append('\t!source "macros/sound_presets.acme"')
+    lines.append("")
 
 
 def _emit_sprite_data(spec: "ProjectSpec", lines: list[str]) -> None:

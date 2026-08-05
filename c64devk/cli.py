@@ -40,6 +40,8 @@ def main() -> None:
     p_test = sub.add_parser("test", help="Run test assertions")
     p_test.add_argument("--project", "-p", default=".", help="Project directory")
     p_test.add_argument("--static", "-s", action="store_true", help="Skip live VICE tests")
+    p_check = sub.add_parser("check", help="Validate spec completeness and consistency")
+    p_check.add_argument("--project", "-p", default=".", help="Project directory")
     p_clean = sub.add_parser("clean", help="Remove output/ directory")
     p_clean.add_argument("--project", "-p", default=".", help="Project directory")
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
@@ -60,6 +62,8 @@ def main() -> None:
             cmd_run(args.project, args.headless)
         case "test":
             cmd_test(args.project, args.static)
+        case "check":
+            cmd_check(args.project)
         case "clean":
             cmd_clean(args.project)
         case "setup":
@@ -224,6 +228,160 @@ def cmd_test(project_path: str, static_only: bool = False) -> None:
     failed = sum(1 for r in results if not r.passed)
     if failed:
         sys.exit(1)
+
+
+def cmd_check(project_path: str) -> None:
+    """Validate spec files for completeness and consistency."""
+    project_dir = Path(project_path).resolve()
+    if not project_dir.is_dir():
+        print(f"Error: '{project_dir}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    config = project_dir / "c64devk.yaml"
+    if not config.exists():
+        print(f"Error: no c64devk.yaml found in '{project_dir}'", file=sys.stderr)
+        sys.exit(1)
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    info: list[str] = []
+
+    # Load spec
+    try:
+        spec = ProjectSpec.from_dir(project_dir)
+    except Exception as e:
+        errors.append(f"Failed to parse specs: {e}")
+        _print_check_result(len(errors), 0, 0, errors, warnings, info)
+        sys.exit(1)
+
+    # Standard validation
+    spec_errors = _validate_spec(spec)
+    errors.extend(spec_errors)
+
+    # Check data files exist
+    for s in spec.sprites:
+        if s.data_file and s.data_file != _default_sprite_path(s.index):
+            fpath = project_dir / s.data_file
+            if not fpath.exists():
+                warnings.append(f"sprites.yaml: '{s.name}' data_file '{s.data_file}' not found on disk")
+        if s.data_files:
+            for direction, fpath_str in s.data_files.items():
+                fpath = project_dir / fpath_str
+                if not fpath.exists():
+                    warnings.append(
+                        f"sprites.yaml: '{s.name}' data_files.{direction} '{fpath_str}' not found on disk"
+                    )
+
+    # Check routines referenced in c64devk.yaml exist
+    for rname in spec.routines:
+        rpath = project_dir / "routines" / f"{rname}.acme"
+        if not rpath.exists():
+            warnings.append(f"c64devk.yaml: routines entry '{rname}' — file '{rpath}' not found")
+
+    # Check game_logic.acme exists (it's the standard hook point)
+    gl_path = project_dir / "routines" / "game_logic.acme"
+    if gl_path.exists():
+        size = gl_path.stat().st_size
+        lines = len(gl_path.read_text().splitlines())
+        info.append(f"routines/game_logic.acme: {lines} lines ({size} bytes)")
+        if lines > 500:
+            warnings.append(
+                f"routines/game_logic.acme is {lines} lines — "
+                "consider whether some logic could move to the behaviour DSL"
+            )
+    else:
+        info.append("No routines/game_logic.acme (all logic in DSL, or stub only)")
+
+    # Check that display_number variables exist in the spec comments or assembly
+    display_vars: set[str] = set()
+    for b in spec.behaviors:
+        for a in b.actions:
+            if a.type == "display_number" and "variable" in a.params:
+                val = a.params["variable"]
+                if isinstance(val, str) and val[0].isalpha():
+                    display_vars.add(val)
+
+    if display_vars:
+        # Check behaviours.yaml comments mention these vars to confirm they're declared somewhere
+        if gl_path.exists():
+            gl_text = gl_path.read_text()
+            for var in display_vars:
+                if var not in gl_text:
+                    # Check if declared in yaml comments
+                    yaml_text = (project_dir / "spec" / "behaviors.yaml").read_text()
+                    if var not in yaml_text:
+                        warnings.append(
+                            f"Variable '{var}' used in display_number but not found "
+                            "in game_logic.acme or documented in behaviors.yaml"
+                        )
+
+    # Count behavior coverage
+    total_bh = len(spec.behaviors)
+    total_actions = sum(len(b.actions) for b in spec.behaviors)
+    info.append(f"Behaviors: {total_bh} defined, {total_actions} total actions")
+    info.append(f"Sprites: {len(spec.sprites)} defined")
+
+    if total_bh == 0:
+        warnings.append(
+            "No behaviours defined — all game logic must be in routines "
+            "(add behaviors.yaml actions for standard patterns)"
+        )
+
+    if gl_path.exists() and total_actions == 0 and gl_path.stat().st_size < 50:
+        warnings.append("No behaviours AND no significant game logic — project is likely non-functional")
+
+    # Check tests exist
+    test_path = project_dir / "spec" / "tests.yaml"
+    if test_path.exists():
+        try:
+            import yaml
+            with open(test_path) as f:
+                test_data = yaml.safe_load(f)
+            test_count = len(test_data.get("tests", [])) if test_data else 0
+            info.append(f"Tests: {test_count} defined in spec/tests.yaml")
+            if test_count == 0:
+                warnings.append("No tests defined in spec/tests.yaml")
+        except Exception:
+            warnings.append("Failed to parse spec/tests.yaml")
+    else:
+        warnings.append("No spec/tests.yaml — add tests to validate behaviour")
+
+    _print_check_result(len(errors), len(warnings), len(info), errors, warnings, info)
+    if errors:
+        sys.exit(1)
+
+
+def _print_check_result(
+    n_errs: int, n_warn: int, n_info: int,
+    errors: list[str], warnings: list[str], info: list[str]
+) -> None:
+    total = n_errs + n_warn + n_info
+    print(f"\n{'=' * 50}")
+    print(f"Spec Check: {n_errs} error(s), {n_warn} warning(s), {n_info} info")
+    print(f"{'=' * 50}")
+    if total == 0:
+        print("No issues found.")
+        return
+    for e in errors:
+        print(f"  ERROR: {e}")
+    for w in warnings:
+        print(f"  WARN:  {w}")
+    for i in info:
+        print(f"  INFO:  {i}")
+    print(f"{'=' * 50}")
+    if errors:
+        print("  Result: FAIL")
+        print("  Fix errors before committing.")
+    elif warnings:
+        print("  Result: PASS with warnings")
+        print("  Review warnings before committing.")
+    else:
+        print("  Result: PASS — specs are consistent.")
+    print()
+
+
+def _default_sprite_path(idx: int) -> str:
+    return f"assets/sprites/sprite{idx}.spr"
 
 
 def cmd_clean(project_path: str) -> None:

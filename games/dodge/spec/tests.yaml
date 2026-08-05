@@ -1,6 +1,24 @@
-# Test definitions — executed as live VICE tests via remote monitor
+# =============================================================================
+# Sprite Dodge — Test Definitions
+# =============================================================================
+#
+# Tests execute via VICE remote monitor (TCP :6510).
+# Commands:
+#   poke:    write byte to address or label
+#   advance: run N frames
+#   check:   assert condition on memory or sprite position
+#
+# check operators:
+#   eq (==), gt (>), gte (>=), lt (<), lte (<=)
+#
+# check targets:
+#   what: memory       → label + expected value
+#   what: sprite_x     → index + expected value
+#   what: sprite_y     → index + expected value
+# =============================================================================
 
 tests:
+  # ─── Sanity ──────────────────────────────────────────────────────────
   - name: build_succeeds
     steps:
       - check: {what: sprite_x, index: 0, gte: 24}
@@ -8,6 +26,38 @@ tests:
       - check: {what: sprite_x, index: 1, gte: 24}
       - check: {what: sprite_y, index: 1, gte: 50}
 
+  - name: stability_10_frames
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: hit_timer, value: 255}
+      - poke: {label: speed_ctr, value: 0}
+      - advance: 10
+      - check: {what: memory, label: state, eq: 0}
+
+  # ─── State machine ───────────────────────────────────────────────────
+  - name: starts_in_splash
+    steps:
+      - check: {what: memory, label: state, eq: 3}
+
+  - name: splash_stays_until_space
+    steps:
+      - advance: 30
+      - check: {what: memory, label: state, eq: 3}
+
+  # ─── Player movement ─────────────────────────────────────────────────
+  - name: player_x_within_bounds
+    steps:
+      - poke: {label: state, value: 0}
+      - advance: 5
+      - check: {what: sprite_x, index: 0, gte: 24}
+
+  - name: player_y_within_bounds
+    steps:
+      - poke: {label: state, value: 0}
+      - advance: 5
+      - check: {what: sprite_y, index: 0, gte: 50}
+
+  # ─── Enemy AI ────────────────────────────────────────────────────────
   - name: enemy_moves_toward_player
     steps:
       - poke: {addr: $d000, value: 200}
@@ -21,24 +71,19 @@ tests:
       - advance: 1
       - check: {what: sprite_x, index: 1, gt: 50}
 
-  - name: stability_10_frames
+  - name: enemy_not_stuck_when_close
     steps:
-      - poke: {label: state, value: 0}
-      - poke: {label: hit_timer, value: 255}
-      - poke: {label: speed_ctr, value: 0}
-      - advance: 10
-      - check: {what: memory, label: state, eq: 0}
+      - poke: {addr: $d000, value: 160}
+      - poke: {addr: $d001, value: 120}
+      - poke: {label: enemy_x, value: 160}
+      - poke: {label: enemy_y, value: 120}
+      - poke: {addr: $d010, value: 0}
+      - poke: {label: speed_ctr, value: 128}
+      - poke: {label: enemy_init, value: 1}
+      - advance: 5
+      - check: {what: sprite_x, index: 1, gte: 24}
 
-  - name: level5_spawn
-    steps:
-      - poke: {label: state, value: 0}
-      - poke: {label: level, value: 5}
-      - poke: {label: hit_timer, value: 255}
-      - poke: {label: ast_active, value: 0}
-      - poke: {label: ast_timer, value: 1}
-      - advance: 10
-      - check: {what: memory, label: state, eq: 0}
-
+  # ─── Collision ───────────────────────────────────────────────────────
   - name: collision_costs_life
     steps:
       - poke: {addr: $d000, value: 100}
@@ -55,3 +100,162 @@ tests:
       - poke: {label: enemy_init, value: 1}
       - advance: 1
       - check: {what: memory, label: lives, eq: 3}
+
+  - name: collision_dmz_immune
+    steps:
+      - poke: {addr: $d000, value: 230}
+      - poke: {addr: $d001, value: 100}
+      - poke: {label: enemy_x, value: 230}
+      - poke: {label: enemy_y, value: 100}
+      - poke: {addr: $d002, value: 230}
+      - poke: {addr: $d003, value: 100}
+      - poke: {addr: $d010, value: 0}
+      - poke: {label: lives, value: 3}
+      - poke: {label: state, value: 0}
+      - poke: {label: hit_timer, value: 0}
+      - poke: {label: speed_ctr, value: 0}
+      - poke: {label: enemy_init, value: 1}
+      - advance: 2
+      - check: {what: memory, label: lives, eq: 3}
+
+  - name: collision_cooldown_works
+    steps:
+      - poke: {label: lives, value: 5}
+      - poke: {label: state, value: 0}
+      - poke: {label: hit_timer, value: 150}
+      - advance: 10
+      - check: {what: memory, label: lives, eq: 5}
+
+  # ─── Scoring ─────────────────────────────────────────────────────────
+  - name: green_zone_gives_score
+    steps:
+      - poke: {addr: $d000, value: 40}
+      - poke: {addr: $d010, value: 0}
+      - poke: {label: state, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 0}   # high byte
+      - poke: {label: score_tmr, value: 0}
+      - poke: {label: zone_ticks, value: 0}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 21                      # one full score tick + 1
+      - check: {what: memory, label: score, gte: 2}
+
+  - name: neutral_zone_no_score
+    steps:
+      - poke: {addr: $d000, value: 160}
+      - poke: {addr: $d010, value: 0}
+      - poke: {label: state, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 0}
+      - poke: {label: score_tmr, value: 0}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 21
+      - check: {what: memory, label: score, eq: 0}
+
+  - name: tiered_scoring_ramps_up
+    steps:
+      - poke: {addr: $d000, value: 40}
+      - poke: {addr: $d010, value: 0}
+      - poke: {label: state, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 0}
+      - poke: {label: score_tmr, value: 0}
+      - poke: {label: zone_ticks, value: 37}  # at tier 2→3 boundary
+      - poke: {label: hit_timer, value: 255}
+      - advance: 21
+      - check: {what: memory, label: score, gte: 3}
+
+  # ─── Level system ────────────────────────────────────────────────────
+  - name: level_up_on_score_1000
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 1}
+      - poke: {label: prev_k, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 10}     # hi byte → score ≈ 2560
+      - advance: 2
+      - check: {what: memory, label: level, gte: 2}
+
+  - name: level_clamped_to_5
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 10}
+      - advance: 5
+      - check: {what: memory, label: level, lte: 5}
+
+  # ─── Asteroid system ─────────────────────────────────────────────────
+  - name: asteroids_spawn_at_level_2
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_timer, value: 1}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 5
+      - check: {what: memory, label: ast_active, gt: 0}
+
+  - name: no_asteroids_at_level_1
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 1}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_timer, value: 1}
+      - advance: 5
+      - check: {what: memory, label: ast_active, eq: 0}
+
+  - name: level5_spawn
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 5}
+      - poke: {label: hit_timer, value: 255}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_timer, value: 1}
+      - advance: 10
+      - check: {what: memory, label: state, eq: 0}
+
+  - name: asteroid_seeds_vary
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: dmz_seed, value: 1}
+      - poke: {label: ast_warn_dir, value: 255}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_timer, value: 1}
+      - advance: 10
+      - check: {what: memory, label: dmz_seed, gt: 0}
+
+  # ─── Restart flow ────────────────────────────────────────────────────
+  - name: restart_resets_score
+    steps:
+      - poke: {label: state, value: 2}
+      - poke: {label: go_drawn, value: 0}
+      - poke: {label: score, value: 42}
+      - poke: {addr: score+1, value: 5}
+      - advance: 1
+      - check: {what: memory, label: go_drawn, eq: 1}
+
+  - name: restart_resets_level
+    steps:
+      - poke: {label: state, value: 2}
+      - poke: {label: level, value: 4}
+      - advance: 1
+      - check: {what: memory, label: level, eq: 4}   # not reset until SPACE
+
+  # ─── DMZ / safe zone ─────────────────────────────────────────────────
+  - name: dmz_seed_nonzero
+    steps:
+      - advance: 5
+      - check: {what: memory, label: dmz_seed, gt: 0}
+
+  - name: dmz_lfsr_changes
+    steps:
+      - poke: {label: dmz_seed, value: 42}
+      - advance: 2
+      - check: {what: memory, label: dmz_seed, gt: 0}
+
+  # ─── Sound ───────────────────────────────────────────────────────────
+  - name: sound_timer_decrements
+    steps:
+      - poke: {label: snd_timer, value: 10}
+      - advance: 5
+      - check: {what: memory, label: snd_timer, lt: 10}

@@ -1,0 +1,340 @@
+;; sound_presets.acme — Ready-to-use SID sound effect subroutines
+;; ==========================================================================
+;; Single-shot presets: JSR starts the sound.  Requires sfx_dur !byte 0.
+;; Multi-frame presets: JSR to start, then JSR sfx_<name>_tick each frame.
+;;   Set sfx_kind to identify which multi-frame sound is active.
+;;
+;; Variable requirements (declare in your code):
+;;   sfx_dur:   !byte 0    ; frame countdown (gate-off when zero)
+;;   sfx_step:  !byte 0    ; step counter (multi-frame)
+;;   sfx_tmp:   !byte 0    ; scratch / sub-timer
+;;   sfx_kind:  !byte 0    ; 0=none, 1=coin, 2=alarm, 3=laser, 4=powerup
+;;
+;; sfx_gate_off: call each frame to gate-off voice 1+3 when sfx_dur==0.
+;; sfx_tick_all: call each frame — dispatches to active multi-frame tick.
+;; ==========================================================================
+
+;; ============================================================
+;; sfx_beep — short high-pitched blip (triangle, voice 1)
+;; ============================================================
+sfx_beep:
+    lda #$04
+    sta SID_FREQ_LO_1
+    lda #$00
+    sta SID_FREQ_HI_1       ; ~962 Hz
+    lda #$09                ; ADSR: attack=0, decay=9
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #6
+    sta sfx_dur
+    rts
+
+;; ============================================================
+;; sfx_boop — short low-pitched blip (triangle, voice 1)
+;; ============================================================
+sfx_boop:
+    lda #$00
+    sta SID_FREQ_LO_1
+    lda #$10
+    sta SID_FREQ_HI_1       ; ~241 Hz
+    lda #$09
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #10
+    sta sfx_dur
+    rts
+
+;; ============================================================
+;; sfx_coin — two-note ding: E5→A5 (triangle, voice 1)
+;; ============================================================
+sfx_coin:
+    lda #1
+    sta sfx_kind
+    lda #0
+    sta sfx_step
+    lda #6
+    sta sfx_tmp
+    rts
+
+sfx_coin_tick:
+    dec sfx_tmp
+    beq sfx_c_go
+    rts
+sfx_c_go:
+    lda sfx_step
+    beq sfx_c_n1
+    lda #$00              ; note 2: A-5
+    sta SID_FREQ_LO_1
+    lda #$05
+    sta SID_FREQ_HI_1
+    lda #$09
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_1
+    lda #6
+    sta sfx_dur
+    lda #2
+    sta sfx_step
+    rts
+sfx_c_n1:
+    lda #$00              ; note 1: E-5
+    sta SID_FREQ_LO_1
+    lda #$07
+    sta SID_FREQ_HI_1
+    lda #$09
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_1
+    inc sfx_step
+    lda #6
+    sta sfx_tmp
+    rts
+
+;; ============================================================
+;; sfx_hit — short noise impact (noise, voice 3)
+;; ============================================================
+sfx_hit:
+    lda #$80
+    sta SID_FREQ_LO_3
+    lda #$00
+    sta SID_FREQ_HI_3
+    lda #$00
+    sta SID_ATK_DEC_3
+    lda #$00
+    sta SID_SUST_REL_3
+    lda #SID_WAVE_NOISE | SID_GATE_ON
+    sta SID_CTRL_3
+    lda #4
+    sta sfx_dur
+    rts
+
+;; ============================================================
+;; sfx_explosion — noise rumble (noise, voice 3, ~25 frames)
+;; ============================================================
+sfx_explosion:
+    lda #$00
+    sta SID_FREQ_LO_3
+    lda #$40
+    sta SID_FREQ_HI_3
+    lda #$09
+    sta SID_ATK_DEC_3
+    lda #$00
+    sta SID_SUST_REL_3
+    lda #SID_WAVE_NOISE | SID_GATE_ON
+    sta SID_CTRL_3
+    lda #25
+    sta sfx_dur
+    rts
+
+;; ============================================================
+;; sfx_alarm — alternating hi/lo alarm (triangle, voice 2)
+;; ============================================================
+sfx_alarm:
+    lda #2
+    sta sfx_kind
+    lda #0
+    sta sfx_step
+    lda #15
+    sta sfx_tmp
+    rts
+
+sfx_alarm_tick:
+    dec sfx_tmp
+    beq sfx_al_go
+    rts
+sfx_al_go:
+    lda sfx_step
+    eor #$01
+    sta sfx_step
+    bne sfx_al_hi
+    lda #$00              ; low tone
+    sta SID_FREQ_LO_2
+    lda #$10
+    sta SID_FREQ_HI_2
+    jmp sfx_al_set
+sfx_al_hi:
+    lda #$04              ; high tone
+    sta SID_FREQ_LO_2
+    lda #$00
+    sta SID_FREQ_HI_2
+sfx_al_set:
+    lda #$09
+    sta SID_ATK_DEC_2
+    lda #$00
+    sta SID_SUST_REL_2
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_2
+    lda #15
+    sta sfx_tmp
+    rts
+
+sfx_alarm_off:
+    lda SID_CTRL_2
+    and #$FE
+    sta SID_CTRL_2
+    rts
+
+;; ============================================================
+;; sfx_laser — descending frequency sweep (saw, voice 2, ~30 frames)
+;; ============================================================
+sfx_laser_freqs:
+    !byte $02,$02, $04,$02, $06,$02, $08,$02, $0A,$02
+    !byte $0C,$02, $0E,$02, $00,$03, $02,$03, $04,$03
+    !byte $06,$03, $08,$03, $0A,$03, $0C,$03, $0E,$03
+    !byte $00,$04, $02,$04, $04,$04, $06,$04, $08,$04
+    !byte $0A,$04, $0C,$04, $0E,$04, $00,$05, $02,$05
+    !byte $04,$05, $06,$05, $08,$05, $0A,$05, $0C,$05
+    !byte $0E,$05
+
+sfx_laser:
+    lda #3
+    sta sfx_kind
+    lda #0
+    sta sfx_step
+    lda #2
+    sta sfx_tmp
+    rts
+
+sfx_laser_tick:
+    dec sfx_tmp
+    beq sfx_ls_go
+    rts
+sfx_ls_go:
+    lda #2
+    sta sfx_tmp
+    lda sfx_step
+    cmp #30
+    bcc sfx_ls_nx
+    jmp sfx_laser_off
+sfx_ls_nx:
+    asl
+    tax
+    lda sfx_laser_freqs, x
+    sta SID_FREQ_LO_2
+    lda sfx_laser_freqs+1, x
+    sta SID_FREQ_HI_2
+    lda #$19
+    sta SID_ATK_DEC_2
+    lda #$00
+    sta SID_SUST_REL_2
+    lda #SID_WAVE_SAW | SID_GATE_ON
+    sta SID_CTRL_2
+    inc sfx_step
+    rts
+
+sfx_laser_off:
+    lda SID_CTRL_2
+    and #$FE
+    sta SID_CTRL_2
+    rts
+
+;; ============================================================
+;; sfx_powerup — ascending 4-note arpeggio (triangle, voice 1)
+;; ============================================================
+sfx_powerup_freqs:
+    !word $1000, $0800, $0400, $0200    ; ~241→482→962→1926 Hz
+
+sfx_powerup:
+    lda #4
+    sta sfx_kind
+    lda #0
+    sta sfx_step
+    lda #7
+    sta sfx_tmp
+    rts
+
+sfx_powerup_tick:
+    dec sfx_tmp
+    beq sfx_pw_go
+    rts
+sfx_pw_go:
+    lda sfx_step
+    cmp #4
+    bcc sfx_pw_nx
+    jmp sfx_powerup_off
+sfx_pw_nx:
+    asl
+    tax
+    lda sfx_powerup_freqs, x
+    sta SID_FREQ_LO_1
+    lda sfx_powerup_freqs+1, x
+    sta SID_FREQ_HI_1
+    lda #$09
+    sta SID_ATK_DEC_1
+    lda #$00
+    sta SID_SUST_REL_1
+    lda #SID_WAVE_TRIANGLE | SID_GATE_ON
+    sta SID_CTRL_1
+    inc sfx_step
+    lda #7
+    sta sfx_tmp
+    rts
+
+sfx_powerup_off:
+    lda SID_CTRL_1
+    and #$FE
+    sta SID_CTRL_1
+    rts
+
+;; ============================================================
+;; sfx_gate_off — gate-off voice 1+3 when sfx_dur reaches 0
+;; ============================================================
+sfx_gate_off:
+    lda sfx_dur
+    beq sfx_go_d
+    dec sfx_dur
+    bne sfx_go_d
+    lda #$0F
+    sta SID_VOL_MODE
+    lda SID_CTRL_1
+    and #$FE
+    sta SID_CTRL_1
+    lda SID_CTRL_3
+    and #$FE
+    sta SID_CTRL_3
+sfx_go_d:
+    rts
+
+;; ============================================================
+;; sfx_silence — gate off all 3 voices, restore volume
+;; ============================================================
+sfx_silence:
+    lda #0
+    sta SID_CTRL_1
+    sta SID_CTRL_2
+    sta SID_CTRL_3
+    lda #$0F
+    sta SID_VOL_MODE
+    rts
+
+;; ============================================================
+;; sfx_tick_all — dispatches to active multi-frame tick via sfx_kind
+;; ============================================================
+sfx_tick_all:
+    lda sfx_kind
+    beq sfx_ta_d
+    cmp #1
+    bne sfx_ta_2
+    jmp sfx_coin_tick
+sfx_ta_2:
+    cmp #2
+    bne sfx_ta_3
+    jmp sfx_alarm_tick
+sfx_ta_3:
+    cmp #3
+    bne sfx_ta_4
+    jmp sfx_laser_tick
+sfx_ta_4:
+    jmp sfx_powerup_tick
+sfx_ta_d:
+    rts

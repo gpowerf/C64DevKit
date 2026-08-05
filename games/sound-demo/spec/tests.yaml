@@ -1,0 +1,27 @@
+# Sound Demo — test definitions
+
+tests:
+  - name: build_succeeds
+    steps:
+      - advance: 2
+      - check: {what: memory, label: sfx_dur, gte: 0}
+      - check: {what: memory, label: sfx_kind, gte: 0}
+
+  - name: stability_30_frames
+    steps:
+      - advance: 30
+      - check: {what: memory, label: sfx_dur, gte: 0}
+      - check: {what: memory, label: preset_idx, lt: 8}
+
+  - name: preset_cycles_on_input
+    steps:
+      - poke: {label: fire_was, value: 0}
+      - advance: 2
+      - check: {what: memory, label: preset_idx, gte: 0}
+      - check: {what: memory, label: preset_idx, lt: 8}
+
+  - name: silence_works
+    steps:
+      - poke: {label: sfx_dur, value: 0}
+      - advance: 2
+      - check: {what: memory, label: sfx_dur, eq: 0}

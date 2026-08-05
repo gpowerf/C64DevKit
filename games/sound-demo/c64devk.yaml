@@ -1,0 +1,18 @@
+# c64devk project configuration
+project:
+  name: "sound-demo"
+  output: "sound-demo.prg"
+
+memory:
+  code_start: 0x0801
+  code_end: 0xCFFF
+  sprite_data: 0x2000
+  charset: 0x3800
+  screen_ram: 0x0400
+
+screen:
+  mode: hires
+  background_color: 0
+  border_color: 6
+
+basic: true
