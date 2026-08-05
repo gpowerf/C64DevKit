@@ -19,6 +19,6 @@ behaviors:
       - display_text: {text: "laser     downward sweep", row: 16, col: 2, color: 3}
       - display_text: {text: "powerup   ascending arpeggio", row: 17, col: 2, color: 3}
       # Current label
-      - display_text: {text: "playing:", row: 19, col: 2, color: 1}
+      - display_text: {text: "playing: ", row: 19, col: 2, color: 1}
       # Version
-      - display_text: {text: "v0.1  —  available from macros/sound_presets.acme", row: 22, col: 4, color: 12}
+      - display_text: {text: "v0.1  --  available from macros/sound_presets.acme", row: 22, col: 4, color: 12}

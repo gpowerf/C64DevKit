@@ -16,3 +16,7 @@ screen:
   border_color: 0
 
 basic: true
+
+# Optional: override defaults
+# constraints:
+#   max_game_logic_lines: 500   # warn if game_logic.acme exceeds this

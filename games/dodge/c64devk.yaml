@@ -16,3 +16,6 @@ screen:
   border_color: 11      # dark gray
 
 basic: true
+
+constraints:
+  max_game_logic_lines: 2500

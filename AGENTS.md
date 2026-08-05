@@ -138,6 +138,7 @@ Additional checks from `c64devk check`:
 - Score/lives/level variables used in display are declared
 - No orphaned labels (referenced but undefined)
 - Routine file exists if `routines:` lists it in `c64devk.yaml`
+- `game_logic.acme` line count vs. `constraints.max_game_logic_lines` (default 500)
 
 ### Project Layout Reference
 

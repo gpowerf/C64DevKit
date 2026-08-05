@@ -284,7 +284,13 @@ def cmd_check(project_path: str) -> None:
         size = gl_path.stat().st_size
         lines = len(gl_path.read_text().splitlines())
         info.append(f"routines/game_logic.acme: {lines} lines ({size} bytes)")
-        if lines > 500:
+        max_lines = 500
+        if spec.constraints:
+            if isinstance(spec.constraints, list) and spec.constraints:
+                max_lines = spec.constraints[0].get("max_game_logic_lines", 500)
+            elif isinstance(spec.constraints, dict):
+                max_lines = spec.constraints.get("max_game_logic_lines", 500)
+        if lines > max_lines:
             warnings.append(
                 f"routines/game_logic.acme is {lines} lines — "
                 "consider whether some logic could move to the behaviour DSL"

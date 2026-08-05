@@ -1,22 +1,25 @@
 ;; sound-demo game_logic.acme — SID preset showcase
 ;; Static screen layout handled by behaviour DSL (behaviors.yaml).
-;; This file: input, sound trigering, dynamic preset name display.
+;; This file: frame loop, input, preset cycling, name display.
 
     jmp demo_start
 
-preset_idx:  !byte 0
-preset_names:
-    !scr "beep", 0, 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "boop", 0, 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "coin", 0, 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "hit", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "explosion", 0, 0, 0, 0
-    !scr "alarm", 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "laser", 0, 0, 0, 0, 0, 0, 0, 0
-    !scr "powerup", 0, 0, 0, 0, 0, 0
+preset_idx: !byte 0
 NUM_PRESETS = 8
-fire_was:   !byte $10    ; previous fire state
-jptr:       !word 0      ; indirect jump pointer
+
+preset_names:
+name_beep:      !scr "beep", 0
+name_boop:      !scr "boop", 0
+name_coin:      !scr "coin", 0
+name_hit:       !scr "hit", 0
+name_explosion: !scr "explosion", 0
+name_alarm:     !scr "alarm", 0
+name_laser:     !scr "laser", 0
+name_powerup:   !scr "powerup", 0
+
+name_offsets:
+    !word name_beep, name_boop, name_coin, name_hit
+    !word name_explosion, name_alarm, name_laser, name_powerup
 
 jtbl:
     !word sfx_beep
@@ -28,64 +31,71 @@ jtbl:
     !word sfx_laser
     !word sfx_powerup
 
+btn_was:  !byte 1      ; 1=button was up, 0=button was down
+jptr:     !word 0
+
 demo_start:
     jsr show_name
 
 main:
+    ;; --- frame sync ---
+    lda frame_ready
+    beq main
+    lda #0
+    sta frame_ready
+
+    ;; --- tick active sounds ---
     jsr sfx_gate_off
     jsr sfx_tick_all
 
-    ;; Read SPACE (keyboard column 7)
+    ;; --- keep name visible every frame ---
+    jsr show_name
+
+    ;; --- read SPACE (keyboard col 7) ---
     lda #$7f
     sta $dc00
     lda $dc01
-    and #$10
-    beq do_next
+    and #$10             ; 0 = pressed
+    beq in_down
 
-    ;; Read joystick fire (port 2)
+    ;; --- read joystick fire (port 2) ---
     lda #$00
     sta $dc02
     lda $dc00
-    and #$10
+    and #$10             ; 0 = pressed
     tax
     lda #$ff
     sta $dc02
     txa
-    bne no_fire
-    lda fire_was
-    bne do_next
-    jmp no_fire
+    beq in_down
 
-do_next:
-    lda fire_was
-    bne dm_go
-    lda #$10
-    sta fire_was
-    jmp main
-no_fire:
-    lda #$10
-    sta fire_was
-
-dm_wait:
-    lda frame_ready
-    beq dm_wait
-    lda #0
-    sta frame_ready
+    ;; neither pressed — reset edge state
+    lda #1
+    sta btn_was
     jmp main
 
-dm_go:
+in_down:
+    ;; button is down — was it already down?
+    lda btn_was
+    beq main             ; still held, skip
+
+    ;; fresh press — cycle to next preset
     lda #0
-    sta fire_was
+    sta btn_was
+
     jsr sfx_silence
+
     inc preset_idx
     lda preset_idx
     cmp #NUM_PRESETS
-    bcc dm_play
+    bcc in_play
     lda #0
     sta preset_idx
 
-dm_play:
+in_play:
     jsr show_name
+
+    ;; push return address, then JMP to sound routine
     lda preset_idx
     asl
     tax
@@ -93,48 +103,46 @@ dm_play:
     sta jptr
     lda jtbl+1, x
     sta jptr+1
+
+    lda #>in_return
+    pha
+    lda #<in_return
+    pha
     jmp (jptr)
 
+in_return:
+    jmp main
+
 ;; ============================================================
-;; Show preset name at row 19, col 10 (next to "playing:")
+;; Show preset name at row 20, col 2
 ;; ============================================================
 show_name:
+    ;; clear name area (cols 2-10, 9 chars)
     ldx #9
     lda #$20
 sn_clr:
-    sta $0400+19*40+10, x
+    sta $0400+20*40+2, x
     dex
     bpl sn_clr
 
+    ;; look up name via pointer table
     lda preset_idx
-    ldx #9
-    jsr mul_x
+    asl
     tax
+    lda name_offsets, x
+    sta $02
+    lda name_offsets+1, x
+    sta $03
+
     ldy #0
 sn_loop:
-    lda preset_names, x
+    lda ($02), y
     beq sn_done
-    sta $0400+19*40+10, y
-    lda #1
-    sta $d800+19*40+10, y
+    sta $0400+20*40+2, y
+    lda #15
+    sta $d800+20*40+2, y
     iny
-    inx
     cpy #9
     bne sn_loop
 sn_done:
     rts
-
-mul_x:
-    stx m_tmp
-    tax
-    lda #0
-mx_loop:
-    cpx #0
-    beq mx_done
-    clc
-    adc m_tmp
-    dex
-    jmp mx_loop
-mx_done:
-    rts
-m_tmp: !byte 0
