@@ -33,6 +33,8 @@ Reverse this and you're vibe coding. Don't.
 
 **If you edit `routines/`, you MUST also update `spec/behaviors.yaml`** to document the change. The spec is the documentation — even if the DSL can't generate the code yet, the spec describes what the code does.
 
+**If your project has an `ASSEMBLY.md`** (like `games/dodge/ASSEMBLY.md`), keep it in sync with routine changes. It documents the 6502 techniques and architecture so others can learn from the codebase.
+
 ### The Decision: DSL or Assembly?
 
 Use the **behaviour DSL** when the action is:
