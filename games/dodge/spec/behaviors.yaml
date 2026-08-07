@@ -65,6 +65,12 @@
 #   ast_warn_y   1 B    —       Pre-rolled spawn Y position
 #   c_saved      1 B    0       Saved $D01E value for multi-check in same frame
 #   cheat_spc    1 B    $FF     Previous SPACE state for edge detection
+#   radar_was    1 B    0       Radar visibility edge detect
+#   pulse_ctr    1 B    0       Enemy colour pulse timer (level 5+)
+#   trans_ready  1 B    0       Flag: level-up detected, trigger transition
+#   trans_tmr    1 B    0       Transition countdown timer (90 frames)
+#   trans_level  1 B    0       Level number to display during transition
+#   trans_done   1 B    0       Text drawn flag (one-shot)
 #
 #   Framework-provided (accessible from routines):
 #     frame_ready    1 B    —   Set to 1 after raster IRQ, cleared after use
@@ -118,25 +124,30 @@ behaviors:
 #   GAME_PLAYING = 0   Normal gameplay
 #   GAME_DYING   = 1   Player just hit; flash + timer before respawn
 #   GAME_OVER    = 2   Lives exhausted; "game over" + SPACE to restart
+#   GAME_TRANSITION = 4  Between levels: "LEVEL X" display, reset, timer
 #
 # Transitions:
 #   SPLASH → PLAYING     SPACE pressed (re-runs do_init, enables sprites)
 #   PLAYING → DYING       Player/enemy collision OR asteroid collision
 #                            (requires: hit_timer==0, player not in DMZ,
 #                             distance gate < 18 px)
-#   DYING → PLAYING       150-frame timer expires + lives > 0
+#   PLAYING → TRANSITION   Score crosses 1000-point threshold (level-up)
+#                            (also triggered by SPACE cheat key)
+#   TRANSITION → PLAYING    90-frame countdown expires; positions reset
+#   DYING → PLAYING         150-frame timer expires + lives > 0
 #                            (player sprite flashes at 4-frame interval)
 #   DYING → GAME_OVER     150-frame timer expires + lives == 0
 #   GAME_OVER → PLAYING   SPACE pressed (calls restart subroutine)
 #
 # Frame dispatch logic:
-#   1. Always run dmz_do (DMZ visual refresh if timer expired)
+#   1. Always run sfx_gate_off + sfx_tick_all + dmz_do
 #   2. If SPLASH: jump to do_splash, own frame loop (bypasses everything)
-#   3. Else: keyboard + cheat_keys + player animation + level_update +
+#   3. If TRANSITION: jump to do_transition (draw text, countdown)
+#   4. Else: keyboard + cheat_keys + player animation + level_update +
 #            ast_update + radar_do
-#   4. If PLAYING: enemy_do + score_do + collision_do + ast_collision
-#   5. If DYING:   do_die (flash, timer, respawn or game over)
-#   6. If GAME_OVER: do_over (draw text, wait for SPACE, restart)
+#   5. If PLAYING: do_play (enemy_do, score_do, collision_do, ast_collision)
+#   6. If DYING:   do_die (flash, timer, respawn or game over)
+#   7. If GAME_OVER: do_over (draw text, wait for SPACE, restart)
 #
 
 
@@ -298,6 +309,8 @@ behaviors:
 #   4. Clamp enemy position:
 #        X clamped to [24, 224]
 #        Y clamped to [58, 229]
+#      At level 5+: enemy colour pulsates red (2) ↔ light red (10)
+#      every 8 frames via pulse_ctr.
 #
 #   5. Write enemy_x / enemy_y to VIC registers ($D002/$D003).
 #      Clear $D010 bit 1 (enemy never uses MSB — max X=224).
@@ -411,11 +424,9 @@ behaviors:
 #
 # One-shot display (go_drawn flag):
 #   Calls draw_gameover on first frame:
-#     - Set colour RAM rows 12–13 all white (1) — overrides zone colours
+#     - Set colour RAM rows 12–13 all white (1)
 #     - Clear screen RAM rows 12–13 (fill with space $20)
 #     - Write "game over" at row 12, col 16
-#     - Write "press space to play" at row 13, col 13
-#     - Text uses !scr for PETSCII conversion (lowercase ASCII → screen codes)
 #   Play game-over sound via sfx_drone (low pulse rumble, ~60 Hz, 30 fr):
 #     auto-cleared by sfx_gate_off when sfx_dur reaches 0.
 
@@ -469,6 +480,7 @@ behaviors:
 #   Level 5+: 35 px/s,   spawn every 20 frames,  max 3 asteroids
 #
 #   Level 1 has no asteroid spawns (ast_spawn returns if level < 2).
+#   At level 5+: enemy sprite colour pulsates red ↔ light red every 8 frames.
 #
 # Level-up sound via sfx_ping:
 #   Two ascending pulse zaps (~1930 Hz → ~3860 Hz, 4 fr each).
@@ -583,10 +595,11 @@ behaviors:
 #     ast_warn_dir 3 (left):   X = 24,          Y = ast_warn_y
 #
 #   Enable sprite ($D015 | $20).
-#   On first frame of visibility (edge from hidden): play sfx_zap_hi ping.
+#   On first frame of visibility (edge from hidden): play sfx_boop ping.
 #   radar_was tracks visibility edge — set on show, cleared on hide/restart.
+#   radar_was also reset in ast_preview when a new warning direction is set.
 #
-# The radar sprite data is a diamond crosshair:
+# The radar sprite data is a crosshair target:
 #   8×8 diamond at the centre of 24×21 grid, transparent elsewhere.
 #   Surrounding bytes are $00 (transparent).
 #
@@ -653,6 +666,8 @@ behaviors:
 #   - Calls sfx_gate_off to handle sfx_dur-based gate-off
 #   - Decrements legacy snd_timer, gate-off voice 1 when zero
 #
+# gstart dispatcher calls sfx_gate_off + sfx_tick_all every frame
+# to handle both single-shot and multi-frame sound presets.
 # sfx_gate_off auto-clears voice 1 + 3 when sfx_dur reaches 0.
 #
 
@@ -670,7 +685,7 @@ behaviors:
 #   2. Fill colour RAM ($D800–$DBE7) with 0 (black)
 #   3. Write title: "last star system" → row 10, col 12, colour white (1)
 #   4. Write prompt: "press fire to play" → row 14, col 11, colour lt.grey (15)
-#   5. Write credit: "by: gpowerf" → row 22, col 14, colour lt.grey (15)
+#   5. Write credit: "gpowerf 2026" → row 22, col 14, colour lt.grey (15)
 #   6. Text via !scr (lowercase ASCII → PETSCII screen codes)
 #
 # Frame loop (do_splash, runs every frame after draw):

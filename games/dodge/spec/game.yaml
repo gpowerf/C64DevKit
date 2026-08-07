@@ -42,16 +42,21 @@
 #   with the same DMZ LFSR noise every 3rd frame.
 #   Title:  "last star system"  — white,   row 10, col 12
 #   Sub:    "press fire to play" — lt.grey (15), row 14, col 11
-#   Credit: "by: gpowerf"    — lt.grey (15), row 23, col 14 (itch.io handle)
+#   Credit: "gpowerf 2026"  — lt.grey (15), row 22, col 14
 #   SPACE or joystick port 2 fire transitions to GAME_PLAYING
 #   All sprites hidden ($D015=0) during splash.
 #
 # Game over screen:
-#   "game over"          — white, row 12, col 16
-#   "press space to play" — white, row 13, col 13
-#   Row 12–13 colour RAM set to white (overrides zone colours).
-#   SPACE jumps to restart (reset score, lives, level, positions).
+#   "game over" in white at row 12, col 16.
+#   Row 12–13 colour RAM set to white.
+#   SPACE restarts game.
 #   Background drone sound on voice 1 during game-over wait.
+#
+# Transition screen (between levels):
+#   Sprites hidden.  "LEVEL X" in white centred at row 12.
+#   90-frame countdown (~1.8 sec).  Player reset to (160,120),
+#   enemy to (100,80), asteroids cleared, 30-frame invincibility.
+#   Transitions to PLAYING when timer expires.
 # =============================================================================
 
 mode: hires

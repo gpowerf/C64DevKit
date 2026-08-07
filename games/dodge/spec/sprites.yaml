@@ -11,7 +11,7 @@
 #   │  2 │ asteroid_0│  7   │ Rock, spawned at level 2+    │
 #   │  3 │ asteroid_1│  8   │ Rock, spawned at level 4+    │
 #   │  4 │ asteroid_2│ 10   │ Rock, spawned at level 5+    │
-#   │  5 │ radar    │   7   │ Diamond crosshair indicator  │
+#   │  5 │ radar    │   7   │ Crosshair target indicator   │
 #   └────┴──────────┴───────┴─────────────────────────────┘
 #
 # Memory layout (all sprites at `sprite_data` = $2000):
@@ -21,7 +21,7 @@
 #   $20C0  ship_d.spr   (player, down)    ptr $83 → $07F8
 #   $2100  skull.spr    (enemy)           ptr $84 → $07F9
 #   $2140  rock.spr     (asteroids)       ptr $85 → $07FA–$07FC
-#   $2180  inline data  (radar)           ptr $86 → $07FD
+#   $2180  inline data  (radar crosshair)  ptr $86 → $07FD
 #
 # The framework uses `data_files` to allocate 4 sprite-pointer slots
 # for the player.  The directional pointer is updated every frame:

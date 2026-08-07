@@ -17,7 +17,7 @@ snd_timer:  !byte 0
 state:      !byte 3    ; 0=playing 1=dying 2=gameover 3=splash
 state_tmr:  !byte 0
 score_tmr:  !byte 0
-zone_ticks: !byte 0          ; consecutive score-zone ticks
+zone_ticks: !byte 0          ; consecutive green-zone score ticks
 flash_tmr:  !byte 0
 init_done:  !byte 0
 splash_done: !byte 0
@@ -33,7 +33,7 @@ dmz_row:    !byte 1
 
 level:      !byte 1    ; difficulty level (1-5+)
 prev_k:     !byte 0    ; previous score/1000 threshold
-speed_frac: !byte 128  ; fractional speed (128/256*50 = 25 px/s)
+speed_div:  !byte 2    ; enemy speed divisor
 ast_timer:  !byte 40   ; countdown to next asteroid spawn
 ast_active: !byte 0    ; bits 0-2: which asteroids are active
 ast_msb:    !byte 0    ; $D010 MSB bits for X >= 256
@@ -51,24 +51,15 @@ ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X
 ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
 c_saved:    !byte 0    ; saved $D01E for multi-check
 cheat_spc:  !byte $FF  ; previous SPACE state (edged)
-radar_was:  !byte 0     ; radar visibility edge detect
-pulse_ctr:  !byte 0     ; enemy colour pulse timer
-trans_ready: !byte 0    ; flag: trigger transition on next frame
-trans_tmr:  !byte 0     ; transition countdown
-trans_level: !byte 0    ; level to display
-trans_done: !byte 0     ; text drawn flag
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
-GAME_PLAYING    = 0
-GAME_DYING      = 1
-GAME_OVER       = 2
-GAME_SPLASH     = 3
-GAME_TRANSITION = 4
+GAME_PLAYING = 0
+GAME_DYING   = 1
+GAME_OVER    = 2
+GAME_SPLASH  = 3
 SCRN = $0400
 
 gstart:
-    jsr sfx_gate_off       ; tick preset sound timers
-    jsr sfx_tick_all       ; tick multi-frame presets
     jsr init_once
     jsr dmz_do
     lda state
@@ -76,10 +67,6 @@ gstart:
     bne g0
     jmp do_splash
 g0:
-    cmp #GAME_TRANSITION
-    bne g0a
-    jmp do_transition
-g0a:
     jsr keyboard_read
     jsr cheat_keys
     ;; Set sprite 0 pointer ($07F8) = $80 + player_dir
@@ -88,22 +75,6 @@ g0a:
     adc #$80
     sta $07F8
     jsr level_update
-    lda trans_ready
-    beq .no_trans
-    lda #0
-    sta trans_ready
-    lda #GAME_TRANSITION
-    sta state
-    lda #0
-    sta $d015             ; hide sprites during transition
-    lda level
-    sta trans_level
-    lda #90
-    sta trans_tmr
-    lda #0
-    sta trans_done        ; 0 = needs to draw text
-    rts                   ; skip rest of frame
-.no_trans:
     jsr ast_update
     jsr radar_do
     lda state
@@ -138,8 +109,6 @@ do_init:
     ;; Border + zones + screen fill
     lda #11
     sta $d020
-    lda #$0F
-    sta $D418              ; master volume 15
 
     ;; Fill screen with solid blocks (shows color RAM zones)
     ldx #0
@@ -160,7 +129,7 @@ clr_scr:
     ldx #25
 z_row:
     ldy #0
-    lda #6                  ; blue — score zone
+    lda #5                  ; green — score zone
 z_grn:
     sta ($02), y
     iny
@@ -188,9 +157,9 @@ z_nh:
     dex
     bne z_row
 
-    ;; Top line header: black background, text gets white from DSL
+    ;; Top line header in white (overrides zone colors on row 0)
     ldx #0
-    lda #0
+    lda #1
 clr_col:
     sta $d800, x
     inx
@@ -306,7 +275,20 @@ do_over:
     bne ov_wait
     inc go_drawn
     jsr draw_gameover
-    jsr sfx_drone          ; Atari-style low rumble
+    lda #<5000
+    sta $D400
+    lda #>5000
+    sta $D401
+    lda #$21
+    sta $D404
+    lda #$01
+    sta $D405
+    lda #$00
+    sta $D406
+    lda #$0F
+    sta $D418
+    lda #30
+    sta snd_timer
     jsr sound_tick
     rts
 
@@ -350,19 +332,21 @@ go_txt:
     inx
     bne go_txt
 go_done:
+    ldx #0
+sp_txt:
+    lda space_text, x
+    beq sp_done
+    sta SCRN+$208+13, x
+    inx
+    bne sp_txt
+sp_done:
     rts
 
 over_text:  !scr "game over", 0
+space_text: !scr "press space to play", 0
 
 ;; ============================================================
 restart:
-    lda #2
-    sta $D028             ; enemy colour back to red
-    lda #0
-    sta pulse_ctr
-    lda #0
-    sta trans_ready
-    sta trans_done
     lda #3
     sta lives
     lda #0
@@ -404,8 +388,8 @@ restart:
     sta level
     lda #0
     sta prev_k
-    lda #128
-    sta speed_frac
+    lda #2
+    sta speed_div
     lda #40
     sta ast_timer
     lda #0
@@ -416,8 +400,6 @@ restart:
     lda #0
     sta ast_warn_x
     sta ast_warn_y
-    lda #0
-    sta radar_was
     lda #0
     sta $d004
     sta $d006
@@ -430,7 +412,7 @@ restart:
     ;; Restore zone colors on game-over rows
     ldy #0
 r_green:
-    lda #6
+    lda #5
     sta $d9e0, y
     sta $da08, y
     iny
@@ -475,7 +457,7 @@ keyboard_read:
     and #$02
     bne k1
     lda $d001
-    cmp #58
+    cmp #50
     bcc k1
     beq k1
     dec $d001
@@ -558,7 +540,7 @@ kdone:
     and #$01
     beq .joy_noup
     lda $d001
-    cmp #58
+    cmp #50
     bcc .joy_noup
     beq .joy_noup
     dec $d001
@@ -633,22 +615,6 @@ kdone:
 ;; Enemy AI
 ;; ============================================================
 enemy_do:
-    ;; pulsate enemy colour at level 5+ (every 8 frames)
-    lda level
-    cmp #5
-    bcc .no_pulse
-    inc pulse_ctr
-    lda pulse_ctr
-    and #$08
-    beq .red
-    lda #10             ; light red
-    bne .p_set
-.red:
-    lda #2              ; red
-.p_set:
-    sta $D028
-.no_pulse:
-
     lda enemy_init
     bne e_active
     inc enemy_init
@@ -662,11 +628,12 @@ enemy_do:
     rts
 
 e_active:
-    clc
+    inc speed_ctr
     lda speed_ctr
-    adc speed_frac
-    sta speed_ctr
+    cmp speed_div
     bcc e_done
+    lda #0
+    sta speed_ctr
 
     lda $d000
     cmp enemy_x
@@ -702,9 +669,9 @@ e_xhi:
 
 e_cy:
     lda enemy_y
-    cmp #58
+    cmp #50
     bcs e_yhi
-    lda #110
+    lda #50
     sta enemy_y
     bne e_wr
 e_yhi:
@@ -857,7 +824,7 @@ c_check:
     lda $d000
     cmp #128
     bcc .spawn_right
-    lda #110
+    lda #50
     jmp .spawn_x
 .spawn_right:
     lda #200
@@ -878,7 +845,20 @@ c_check:
     sta enemy_y
     sta $d003
 
-    jsr sfx_explosion      ; noise rumble with decay
+    lda #<5000
+    sta $D400
+    lda #>5000
+    sta $D401
+    lda #$21
+    sta $D404
+    lda #$01
+    sta $D405
+    lda #$00
+    sta $D406
+    lda #$0F
+    sta $D418
+    lda #20
+    sta snd_timer
 
     lda #GAME_DYING
     sta state
@@ -892,103 +872,9 @@ c_no:
     rts
 
 ;; ============================================================
-;; Level transition — between levels, show "LEVEL X"
-;; ============================================================
-do_transition:
-    lda trans_done
-    bne .t_wait
-    jmp .t_draw
-.t_wait:
-    ;; counting down
-    dec trans_tmr
-    beq .t_exp
-    jmp .t_rts
-.t_exp:
-    lda #$03             ; enable sprites 0+1
-    sta $d015
-    lda #160
-    sta $d000
-    lda #120
-    sta $d001
-    lda $d010
-    and #$FE
-    sta $d010
-    lda #100
-    sta enemy_x
-    sta $d002
-    lda #80
-    sta enemy_y
-    sta $d003
-    lda $d010
-    and #$FD
-    sta $d010
-    ;; clear asteroids
-    lda #0
-    sta ast_active
-    sta ast_msb
-    lda #24
-    sta ast_x
-    sta ast_x+1
-    sta ast_x+2
-    lda #250
-    sta ast_y
-    sta ast_y+1
-    sta ast_y+2
-    sta $d004
-    sta $d005
-    sta $d006
-    sta $d007
-    sta $d008
-    sta $d009
-    lda #40
-    sta ast_timer
-    lda #255
-    sta ast_warn_dir
-    ;; invincibility after transition
-    lda #30
-    sta hit_timer
-    ;; clear transition text area
-    ldx #7
-    lda #$20
-.t_clr:
-    sta $0400+12*40+16, x
-    dex
-    bpl .t_clr
-    ;; back to playing
-    lda #GAME_PLAYING
-    sta state
-    rts
-
-.t_draw:
-    inc trans_done
-    ;; draw "LEVEL " at row 12, col 16
-    ldx #0
-.t_lp:
-    lda trans_text, x
-    beq .t_num
-    sta $0400+12*40+16, x
-    lda #1
-    sta $d800+12*40+16, x
-    inx
-    bne .t_lp
-.t_num:
-    ;; draw level digit
-    lda trans_level
-    clc
-    adc #$30            ; convert 1-5 to PETSCII '1'-'5'
-    sta $0400+12*40+16+6
-    lda #1
-    sta $d800+12*40+16+6
-.t_rts:
-    rts
-
-trans_text: !scr "level ", 0
-
-;; ============================================================
 ;; Sound tick
 ;; ============================================================
 sound_tick:
-    jsr sfx_gate_off
     lda snd_timer
     beq st_done
     dec snd_timer
@@ -1009,37 +895,30 @@ level_update:
     cmp prev_k
     beq .no_up
     bcc .no_up
-    sta prev_k
+    sta prev_k       ; advance threshold
     inc level
-    lda level
-    sta trans_ready      ; flag transition for gstart
-    ;; Apply level difficulty
-    ldx level
-    cpx #6
-    bcc .lv_ok
-    ldx #5
-.lv_ok:
-    dex
-    lda level_speeds, x
-    sta speed_frac
-    lda level_spawns, x
-    sta ast_timer
-    jsr sfx_ping           ; Atari-style ascending two-note zap
-    ;; Enemy colour changes at level 5
-    lda level
-    cmp #5
-    bcc .red_col
-    lda #10             ; light red
-    bne .set_col
-.red_col:
-    lda #2              ; red
-.set_col:
-    sta $D028
+    ;; Play level-up chirp on voice 3
+    lda #$40
+    sta $D40E
+    lda #$1F
+    sta $D40F
+    lda #$29
+    sta $D412
+    lda #$00
+    sta $D413
+    lda #$11
+    sta $D414
+    lda #$0F
+    sta $D418
+    lda #15
+    sta snd_timer
     ;; Pre-roll first asteroid direction on reaching level 2
     lda level
     cmp #2
     bne .no_up
     jsr ast_preview
+    lda #40
+    sta ast_timer
 .no_up:
     rts
 
@@ -1154,7 +1033,7 @@ ast_spawn:
     lda ast_vy
     cmp #1
     bcc .not_top         ; dy=0 → edge spawn, treat as right/left
-    lda #110
+    lda #50
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1300,10 +1179,6 @@ ast_preview:
     rts
 .ap_go:
 
-    ;; reset radar edge detect for new warning
-    lda #0
-    sta radar_was
-
     ;; CIA timer + raster — independent of LFSR cycle
     lda $dc04
     eor $d012
@@ -1340,7 +1215,7 @@ ast_preview:
     ;; TOP: Y=50, random X 40-167
     lda #1
     sta ast_warn_dir
-    lda #110
+    lda #50
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1395,13 +1270,7 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
-    ldx level
-    cpx #6
-    bcc .a_ok
-    ldx #5
-.a_ok:
-    dex
-    lda level_spawns, x
+    lda #40             ; respawn delay
     sta ast_timer
 .spwn_d:
 
@@ -1685,7 +1554,20 @@ ast_collision:
     sta flash_tmr
     sta hit_timer
 
-    jsr sfx_explosion      ; noise rumble with decay
+    lda #<5000
+    sta $D400
+    lda #>5000
+    sta $D401
+    lda #$21
+    sta $D404
+    lda #$01
+    sta $D405
+    lda #$00
+    sta $D406
+    lda #$0F
+    sta $D418
+    lda #20
+    sta snd_timer
     rts
 
 ;; ============================================================
@@ -1694,19 +1576,11 @@ ast_collision:
 radar_do:
     lda state
     cmp #GAME_PLAYING
-    bne .r_hide_w
+    bne .r_hide
 
     lda ast_warn_dir
     cmp #255
-    beq .r_hide_w
-
-    ;; edge: was hidden, now visible → radar ping
-    lda radar_was
-    bne .r_go
-    inc radar_was
-    jsr sfx_boop
-
-.r_go:
+    beq .r_hide
 
     lda ast_warn_dir
     beq .r_bot
@@ -1731,10 +1605,10 @@ radar_do:
     bne .r_ena
 
 .r_top:
-    ;; TOP edge: pin Y=60, exact X
+    ;; TOP edge: pin Y=51, exact X
     lda ast_warn_x
     sta $d00a
-    lda #59
+    lda #51
     sta $d00b
     bne .r_ena
 
@@ -1751,10 +1625,6 @@ radar_do:
     sta $d015
     rts
 
-.r_hide_w:
-    lda #0
-    sta radar_was
-    ;; fall through to hide sprite
 .r_hide:
     lda $d015
     and #$DF
@@ -1905,31 +1775,19 @@ chk_edge:
 chk_set:
     ldx level
     dex
-    lda level_speeds, x
-    sta speed_frac
+    lda chk_speeds, x
+    sta speed_div
     txa
     asl
     tax
-    lda level_scores, x
+    lda chk_offs, x
     sta score
-    lda level_scores+1, x
+    lda chk_offs+1, x
     sta score+1
     sta prev_k           ; match score high byte so level_update skips
     ora score
     beq chk_clr            ; level 1: no chirp
     jsr chk_sid
-    lda level
-    sta trans_ready      ; flag transition for gstart
-    ;; Enemy colour at level 5
-    lda level
-    cmp #5
-    bcc .chk_red
-    lda #10
-    bne .chk_setc
-.chk_red:
-    lda #2
-.chk_setc:
-    sta $D028
 
 chk_clr:
     lda #0
@@ -2056,7 +1914,7 @@ top0:
     and #$7F
     adc #40
     sta ast_x, x
-    lda #110
+    lda #50
     sta ast_y, x
     jmp .fv_reg
 lt0:
@@ -2150,12 +2008,25 @@ chk_up:
     lda #$10
     sta cheat_spc          ; remember: SPACE not pressed
     rts
-level_speeds: !byte 128, 128, 128, 154, 179     ; px/s: 25, 25, 25, 30, 35
-level_spawns: !byte 40, 40, 30, 25, 20            ; asteroid spawn interval
-level_scores: !word 0, 1000, 2000, 3000, 4000     ; score per level (cheat)
+chk_speeds: !byte 2,2,2,2,2    ; speed_div (always 2 now)
+chk_offs:   !word 0, 1000, 2000, 3000, 4000  ; score values
 
 chk_sid:
-    jmp sfx_ping           ; ascending two-note level-up sound
+    lda #$40
+    sta $D40E
+    lda #$1F
+    sta $D40F
+    lda #$29
+    sta $D412
+    lda #$00
+    sta $D413
+    lda #$11
+    sta $D414
+    lda #$0F
+    sta $D418
+    lda #10
+    sta snd_timer
+    rts
 
 ;; -- Rock sprite data (asteroid) --
 ;; ============================================================
@@ -2184,21 +2055,9 @@ do_splash:
     lda #$7f
     sta $dc00
     lda $dc01
-    and #$10             ; 0 = SPACE pressed
-    beq .ds_start
+    and #$10             ; SPACE to start
+    bne .ds_wait         ; loop back — never returns to main_loop
 
-    ;; Check joystick port 2 fire
-    lda #$00
-    sta $dc02            ; set port A all inputs
-    lda $dc00
-    and #$10             ; 0 = fire pressed
-    tax                  ; save fire state
-    lda #$ff
-    sta $dc02            ; restore keyboard mode
-    txa
-    bne .ds_wait         ; fire not pressed → wait
-
-.ds_start:
     lda #0
     sta init_done         ; force do_init to re-run (overwrites splash with game screen)
     lda #$03             ; enable sprites 0+1
@@ -2301,56 +2160,42 @@ draw_splash:
     ldx #0
 .s_slp:
     lda ds_press, x
-    beq .s_cred
+    beq .s_done
     sta $0400+14*40+11, x
     lda #15
     sta $d800+14*40+11, x
     inx
     bne .s_slp
 
-.s_cred:
-    ;; Credit in light gray at row 22, col 14
-    ldx #0
-.s_clp:
-    lda ds_credit, x
-    beq .s_done
-    sta $0400+22*40+14, x
-    lda #15
-    sta $d800+22*40+14, x
-    inx
-    bne .s_clp
-
 .s_done:
     rts
 
 ds_title:  !scr "last star system", 0
-ds_press:  !scr "press fire to play", 0
-ds_credit: !scr "gpowerf 2026", 0
+ds_press:  !scr "press space to play", 0
 
 * = $2140
     !bin "assets/sprites/rock.spr"
 
-;; Radar indicator sprite data (crosshair target)
+;; Radar indicator sprite data (small diamond crosshair at center)
 * = $2180
     !byte $00,$00,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$7C,$00
-    !byte $00,$92,$00
-    !byte $00,$82,$00
-    !byte $3F,$EF,$F0
-    !byte $00,$82,$00
-    !byte $00,$92,$00
-    !byte $00,$7C,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
-    !byte $00,$10,$00
     !byte $00,$00,$00
-    !byte $01
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$18,$00
+    !byte $00,$3c,$00
+    !byte $00,$7e,$00
+    !byte $00,$e7,$00
+    !byte $00,$7e,$00
+    !byte $00,$3c,$00
+    !byte $00,$18,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00,$00,$00
+    !byte $00
