@@ -57,6 +57,10 @@ trans_ready: !byte 0    ; flag: trigger transition on next frame
 trans_tmr:  !byte 0     ; transition countdown
 trans_level: !byte 0    ; level to display
 trans_done: !byte 0     ; text drawn flag
+ship_ctr:  !byte 0     ; ship animation counter (every 8 frames)
+ship_frame: !byte 0    ; ship animation frame (0-1)
+enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
+enemy_frame: !byte 0   ; enemy animation frame (0-3)
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING    = 0
@@ -82,11 +86,26 @@ g0:
 g0a:
     jsr keyboard_read
     jsr cheat_keys
-    ;; Set sprite 0 pointer ($07F8) = $80 + player_dir
+    jsr anim_update
+    ;; Set sprite 0 pointer = $80 + player_dir + ship_frame * 5
     lda player_dir
     clc
     adc #$80
+    ldx ship_frame
+    beq .sp_set
+    clc
+    adc #5
+.sp_set:
     sta $07F8
+    ;; Set sprite 1 pointer = $84 + enemy_frame (skip 4 blocks if frame>0)
+    lda enemy_frame
+    beq .en_base
+    clc
+    adc #4
+.en_base:
+    clc
+    adc #$84
+    sta $07F9
     jsr level_update
     lda trans_ready
     beq .no_trans
@@ -119,6 +138,37 @@ g2:
     bne gdone
     jmp do_over
 gdone:
+    rts
+
+;; ============================================================
+;; Sprite animation — cycles ship (2 frames) and enemy (4 frames)
+;; ============================================================
+anim_update:
+    ;; Ship: alternate every 8 frames
+    inc ship_ctr
+    lda ship_ctr
+    cmp #8
+    bcc .an_enemy
+    lda #0
+    sta ship_ctr
+    lda ship_frame
+    eor #1
+    sta ship_frame
+.an_enemy:
+    ;; Enemy: cycle 0-1-2-3 every 6 frames
+    inc enemy_ctr
+    lda enemy_ctr
+    cmp #6
+    bcc .an_done
+    lda #0
+    sta enemy_ctr
+    inc enemy_frame
+    lda enemy_frame
+    cmp #4
+    bcc .an_done
+    lda #0
+    sta enemy_frame
+.an_done:
     rts
 
 ;; ============================================================
@@ -206,8 +256,8 @@ clr_col:
     and #$FD
     sta $d010
     jsr dmz_init
-    ;; Init asteroid sprites (2-4) — all point to rock at $2140 (block $85)
-    lda #$85
+    ;; Init asteroid sprites (2-4) — all point to rock at $2300 (block $8C)
+    lda #$8C
     sta $07FA
     sta $07FB
     sta $07FC
@@ -227,7 +277,7 @@ clr_col:
     sta $d007
     sta $d009
     ;; Init radar sprite 5 — pointer and color
-    lda #$86
+    lda #$8D
     sta $07FD
     lda #7              ; yellow
     sta $d02c
@@ -389,6 +439,10 @@ restart:
     lda #0
     sta zone_ticks
     sta score_tmr
+    sta ship_ctr
+    sta ship_frame
+    sta enemy_ctr
+    sta enemy_frame
     lda #10
     sta hit_timer
 
@@ -921,6 +975,10 @@ do_transition:
     sta score_tmr          ; reset scoring state for new level
     sta zone_ticks
     sta last_safe
+    sta ship_ctr
+    sta ship_frame
+    sta enemy_ctr
+    sta enemy_frame
     lda #$03             ; enable sprites 0+1
     sta $d015
     lda #160
@@ -2347,11 +2405,30 @@ ds_title:  !scr "last star system", 0
 ds_press:  !scr "press fire to play", 0
 ds_credit: !scr "gpowerf 2026", 0
 
-* = $2140
+;; --- Sprite animation frames (duplicates for now; TODO: create real alt frames) ---
+;; Ship frame 1 (4 directions) — blocks $85-$88
+* = $2140   ; $85: ship_r1  TODO: create assets/sprites/ship_r1.spr
+    !bin "assets/sprites/ship_r.spr"
+* = $2180   ; $86: ship_l1  TODO: create assets/sprites/ship_l1.spr
+    !bin "assets/sprites/ship_l.spr"
+* = $21C0   ; $87: ship_u1  TODO: create assets/sprites/ship_u1.spr
+    !bin "assets/sprites/ship_u.spr"
+* = $2200   ; $88: ship_d1  TODO: create assets/sprites/ship_d1.spr
+    !bin "assets/sprites/ship_d.spr"
+;; Enemy frames 1-3 — blocks $89-$8B
+* = $2240   ; $89: skull1  TODO: create assets/sprites/skull1.spr
+    !bin "assets/sprites/skull.spr"
+* = $2280   ; $8A: skull2  TODO: create assets/sprites/skull2.spr
+    !bin "assets/sprites/skull.spr"
+* = $22C0   ; $8B: skull3  TODO: create assets/sprites/skull3.spr
+    !bin "assets/sprites/skull.spr"
+
+;; Rock sprite data (asteroid) — block $8C
+* = $2300
     !bin "assets/sprites/rock.spr"
 
-;; Radar indicator sprite data (crosshair target)
-* = $2180
+;; Radar indicator sprite data (crosshair target) — block $8D
+* = $2340
     !byte $00,$00,$00
     !byte $00,$10,$00
     !byte $00,$10,$00
