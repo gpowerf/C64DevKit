@@ -312,11 +312,23 @@ do_over:
 
 ov_wait:
     jsr sound_tick
+    ;; Check SPACE
     lda #$7f
     sta $dc00
     lda $dc01
     and #$10
+    beq ov_restart
+    ;; Check joystick port 2 fire
+    lda #$00
+    sta $dc02
+    lda $dc00
+    and #$10
+    tax
+    lda #$ff
+    sta $dc02
+    txa
     bne ov_done
+ov_restart:
     jsr restart
 ov_done:
     rts
@@ -376,6 +388,7 @@ restart:
     sta last_safe
     lda #0
     sta zone_ticks
+    sta score_tmr
     lda #10
     sta hit_timer
 
@@ -904,6 +917,10 @@ do_transition:
     beq .t_exp
     jmp .t_rts
 .t_exp:
+    lda #0
+    sta score_tmr          ; reset scoring state for new level
+    sta zone_ticks
+    sta last_safe
     lda #$03             ; enable sprites 0+1
     sta $d015
     lda #160
@@ -947,11 +964,14 @@ do_transition:
     ;; invincibility after transition
     lda #30
     sta hit_timer
-    ;; clear transition text area
-    ldx #7
+    ;; clear transition text + colour (10 cols, covers game over too)
+    ldx #9
     lda #$20
 .t_clr:
     sta $0400+12*40+16, x
+    lda #0               ; black — restore neutral zone colour
+    sta $d800+12*40+16, x
+    lda #$20              ; restore space char in A for next iteration
     dex
     bpl .t_clr
     ;; back to playing

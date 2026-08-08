@@ -133,7 +133,8 @@ behaviors:
 #                             distance gate < 18 px)
 #   PLAYING → TRANSITION   Score crosses 1000-point threshold (level-up)
 #                            (also triggered by SPACE cheat key)
-#   TRANSITION → PLAYING    90-frame countdown expires; positions reset
+#   TRANSITION → PLAYING    90-frame countdown expires; positions reset,
+#                            score_tmr/zone_ticks/last_safe zeroed for new level
 #   DYING → PLAYING         150-frame timer expires + lives > 0
 #                            (player sprite flashes at 4-frame interval)
 #   DYING → GAME_OVER     150-frame timer expires + lives == 0

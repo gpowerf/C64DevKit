@@ -162,6 +162,22 @@ def cmd_build(project_path: str) -> None:
     if result.returncode == 0:
         size = prg_path.stat().st_size if prg_path.exists() else 0
         print(f"Build successful: {prg_path} ({size} bytes)")
+
+        # Build D64 disk image for portable use (Anbernic, etc.)
+        d64_name = spec.output.replace(".prg", ".d64")
+        d64_path = build_dir / d64_name
+        prg_basename = spec.output.replace(".prg", "").upper()[:16]
+        disk_label = d64_name.replace(".d64", "")[:16]
+        d64_args = [
+            "c1541",
+            "-format", f"{disk_label},01", "d64", str(d64_path),
+            "-write", str(prg_path), prg_basename,
+        ]
+        d64_result = subprocess.run(d64_args, capture_output=True)
+        if d64_result.returncode == 0:
+            print(f"  D64 image: {d64_path}")
+        else:
+            print(f"  Warning: c1541 failed — D64 not created")
     else:
         print(f"Build failed:")
         print(result.stderr or result.stdout)
