@@ -61,6 +61,9 @@ ship_ctr:  !byte 0     ; ship animation counter (every 8 frames)
 ship_frame: !byte 0    ; ship animation frame (0-1)
 enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
 enemy_frame: !byte 0   ; enemy animation frame (0-3)
+pwr_avail: !byte 0     ; invincibility charge available (0/1)
+pwr_flash: !byte 0     ; flash cycle counter during invincibility
+pwr_key:   !byte 0     ; fire/shift edge state (0=held, 1=released)
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING    = 0
@@ -106,6 +109,20 @@ g0a:
     clc
     adc #$84
     sta $07F9
+    ;; Powerup charge HUD indicator (row 0, col 28)
+    lda pwr_avail
+    beq .p_hide
+    lda #$10             ; PETSCII "P"
+    sta $0400+28
+    lda #1               ; white
+    sta $d800+28
+    jmp .p_ok
+.p_hide:
+    lda #$20             ; space
+    sta $0400+28
+    lda #0               ; black
+    sta $d800+28
+.p_ok:
     jsr level_update
     lda trans_ready
     beq .no_trans
@@ -293,10 +310,77 @@ clr_col:
 do_play:
     lda #0
     sta c_saved          ; clear stale collision from previous frame
+    jsr pwr_check
     jsr enemy_do
     jsr score_do
     jsr collision_do
     jsr ast_collision
+    ;; --- Unified invincibility flash (powerup + post-hit) ---
+    lda hit_timer
+    beq .inv_off
+    lda pwr_flash
+    beq .f_toggle
+    dec pwr_flash
+    jmp .inv_done
+.f_toggle:
+    lda $d015
+    eor #$01             ; toggle sprite 0 visibility
+    sta $d015
+    lda #4
+    sta pwr_flash
+    jmp .inv_done
+.inv_off:
+    lda $d015
+    ora #$01             ; flash must never end on a hidden frame
+    sta $d015
+.inv_done:
+    rts
+
+;; ============================================================
+;; Powerup — fire/shift-triggered invincibility charge
+;; ============================================================
+pwr_check:
+    ;; Fire (joystick port 2, active low)
+    lda #$00
+    sta $dc02            ; port A all inputs
+    lda $dc00
+    and #$10             ; bit 4: fire
+    bne .fire_up
+    jmp .pressed
+.fire_up:
+    lda #$ff
+    sta $dc02            ; restore port A outputs
+    ;; LEFT SHIFT (keyboard column $FD, row 7 → bit $80)
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$80
+    bne .not_pressed
+.pressed:
+    lda #$ff
+    sta $dc02            ; idempotent restore
+    lda pwr_key
+    beq .p_held          ; already down — no edge
+    lda #0
+    sta pwr_key          ; mark held
+    lda pwr_avail
+    beq .p_held          ; edge but no charge
+    lda #0
+    sta pwr_avail        ; consume charge
+    lda hit_timer
+    cmp #100
+    bcs .keep            ; keep longer existing invincibility
+    lda #100             ; 2 seconds at 50 fps
+    sta hit_timer
+.keep:
+    lda #0
+    sta pwr_flash
+    jsr sfx_powerup      ; ascending 4-note arpeggio
+.p_held:
+    rts
+.not_pressed:
+    lda #1
+    sta pwr_key          ; mark released
     rts
 
 ;; ============================================================
@@ -443,6 +527,10 @@ restart:
     sta ship_frame
     sta enemy_ctr
     sta enemy_frame
+    lda #0
+    sta pwr_avail
+    sta pwr_flash
+    sta pwr_key
     lda #10
     sta hit_timer
 
@@ -1089,6 +1177,20 @@ level_update:
     bcc .no_up
     sta prev_k
     inc level
+    ;; Clamp level variable at 5 (difficulty caps, HUD never shows 6+)
+    lda level
+    cmp #6
+    bcc .lv_clamped
+    lda #5
+    sta level
+.lv_clamped:
+    ;; Award powerup charge at level 3+ (capped at 1)
+    lda level
+    cmp #3
+    bcc .no_charge
+    lda #1
+    sta pwr_avail
+.no_charge:
     lda level
     sta trans_ready      ; flag transition for gstart
     ;; Apply level difficulty
@@ -2241,17 +2343,17 @@ do_splash:
     lda #$00
     sta $d015             ; disable all sprites during splash
     lda splash_done
-    bne .ds_wait
+    bne splash_wait
     inc splash_done
     jsr draw_splash
     ;; Fall through to splash frame loop — we own the frame now,
     ;; main_loop's behaviors_update never runs during splash.
 
-.ds_wait:
+splash_wait:
     ;; Frame sync — own wait loop, bypassing main_loop entirely
     ;; so behaviors_update never runs during splash.
     lda frame_ready
-    beq .ds_wait
+    beq splash_wait
     lda #0
     sta frame_ready
 
@@ -2274,7 +2376,14 @@ do_splash:
     lda #$ff
     sta $dc02            ; restore keyboard mode
     txa
-    bne .ds_wait         ; fire not pressed → wait
+    beq .ds_start        ; fire pressed → start
+    ;; Testability hook: if state was changed externally (VICE monitor
+    ;; tests poke state), exit the splash loop.  Inert during real play —
+    ;; nothing in the game itself writes state while splashing.
+    lda state
+    cmp #GAME_SPLASH
+    bne .ds_start
+    jmp splash_wait
 
 .ds_start:
     lda #0

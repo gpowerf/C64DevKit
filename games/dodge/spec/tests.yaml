@@ -36,10 +36,12 @@ tests:
 
   # ─── State machine ───────────────────────────────────────────────────
   - name: starts_in_splash
+    start: splash
     steps:
       - check: {what: memory, label: state, eq: 3}
 
   - name: splash_stays_until_space
+    start: splash
     steps:
       - advance: 30
       - check: {what: memory, label: state, eq: 3}
@@ -65,7 +67,7 @@ tests:
       - poke: {label: enemy_x, value: 50}
       - poke: {label: enemy_y, value: 120}
       - poke: {addr: $d010, value: 0}
-      - poke: {label: speed_ctr, value: 1}
+      - poke: {label: speed_ctr, value: 128}   # +speed_frac(128) → carry → move
       - poke: {label: enemy_init, value: 1}
       - poke: {label: hit_timer, value: 255}
       - advance: 1
@@ -98,8 +100,8 @@ tests:
       - poke: {label: hit_timer, value: 0}
       - poke: {label: speed_ctr, value: 0}
       - poke: {label: enemy_init, value: 1}
-      - advance: 1
-      - check: {what: memory, label: lives, eq: 3}
+      - advance: 2                    # frame 1 draws overlap → frame 2 reads it
+      - check: {what: memory, label: lives, eq: 2}
 
   - name: collision_dmz_immune
     steps:
@@ -179,8 +181,11 @@ tests:
   - name: level_clamped_to_5
     steps:
       - poke: {label: state, value: 0}
-      - poke: {label: level, value: 10}
-      - advance: 5
+      - poke: {label: level, value: 9}
+      - poke: {label: prev_k, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 10}     # hi byte → score ≈ 2560
+      - advance: 2
       - check: {what: memory, label: level, lte: 5}
 
   # ─── Asteroid system ─────────────────────────────────────────────────
@@ -231,6 +236,7 @@ tests:
       - poke: {label: go_drawn, value: 0}
       - poke: {label: score, value: 42}
       - poke: {addr: score+1, value: 5}
+      - poke: {label: prev_k, value: 5}   # suppress level-up transition
       - advance: 1
       - check: {what: memory, label: go_drawn, eq: 1}
 
@@ -256,6 +262,35 @@ tests:
   # ─── Sound ───────────────────────────────────────────────────────────
   - name: sound_timer_decrements
     steps:
+      - poke: {label: state, value: 2}      # GAME_OVER runs sound_tick
+      - poke: {label: go_drawn, value: 1}
       - poke: {label: snd_timer, value: 10}
       - advance: 5
       - check: {what: memory, label: snd_timer, lt: 10}
+
+  # ─── Powerup ─────────────────────────────────────────────────────────
+  - name: powerup_awarded_at_level_3
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: prev_k, value: 0}
+      - poke: {label: score, value: 0}
+      - poke: {addr: score+1, value: 10}     # level-up to 3 on next frame
+      - poke: {label: pwr_avail, value: 0}
+      - advance: 2
+      - check: {what: memory, label: level, eq: 3}
+      - check: {what: memory, label: pwr_avail, eq: 1}
+
+  - name: powerup_hud_shows_p
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: pwr_avail, value: 1}
+      - advance: 2
+      - check: {what: memory, addr: $041c, eq: $10}   # screen $0400+28 = "P"
+
+  - name: powerup_hud_clears
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: pwr_avail, value: 0}
+      - advance: 2
+      - check: {what: memory, addr: $041c, eq: $20}   # space when no charge

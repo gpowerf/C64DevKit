@@ -667,6 +667,93 @@ overwriting the splash screen with the game's 3-zone colour RAM layout.
 
 ---
 
+### Powerup (`pwr_check` + unified invincibility flash)
+
+An invincibility **charge**, not an item: reaching level 3+ sets `pwr_avail`,
+and FIRE (joystick port 2) or LEFT SHIFT spends it for 2 seconds (100 frames)
+of immunity.
+
+**Award** — in `level_update`, right after `inc level`:
+```asm
+    lda level
+    cmp #3
+    bcc .no_charge
+    lda #1
+    sta pwr_avail        ; capped at 1 — next level-up refreshes
+.no_charge:
+```
+
+**Trigger** — `pwr_check` runs every PLAYING frame.  It reads both input
+sources (fire via `$DC02=$00` input mode; LEFT SHIFT via column `$FD`,
+row bit `$80`) and combines them with the `cheat_spc` edge-detection
+pattern: `pwr_key` is 0 while held, 1 when released, so a charge can
+never auto-fire while the button is held down.
+
+```asm
+.pressed:
+    lda #$ff
+    sta $dc02            ; restore keyboard mode (idempotent)
+    lda pwr_key
+    beq .p_held          ; already down → no edge
+    lda #0
+    sta pwr_key
+    lda pwr_avail
+    beq .p_held
+    lda #0
+    sta pwr_avail        ; consume charge
+    lda hit_timer
+    cmp #100
+    bcs .keep            ; keep the longer timer — max() trick
+    lda #100             ; 2 seconds at 50 fps
+    sta hit_timer
+.keep:
+    lda #0
+    sta pwr_flash
+    jsr sfx_powerup
+.p_held:
+    rts
+```
+
+**Why `hit_timer`?**  Both collision systems already gate on it —
+setting it to 100 gives immunity with zero changes to `collision_do`
+or `ast_collision`.  The `cmp #100 / bcs` is a branch-based `max()`:
+triggering while already invincible never shortens the existing timer.
+
+**Unified flash** — the end of `do_play` flashes sprite 0 whenever
+`hit_timer > 0`, so *all* invincibility (powerup and the existing
+150-frame post-respawn grace) is visually indicated:
+
+```asm
+    lda hit_timer
+    beq .inv_off
+    lda pwr_flash
+    beq .f_toggle
+    dec pwr_flash        ; 4-frame cycle ≈ 6 Hz
+    jmp .inv_done
+.f_toggle:
+    lda $d015
+    eor #$01             ; toggle sprite 0 enable
+    sta $d015
+    lda #4
+    sta pwr_flash
+    jmp .inv_done
+.inv_off:
+    lda $d015
+    ora #$01             ; never end the flash on a hidden frame
+    sta $d015
+.inv_done:
+    rts
+```
+
+`do_die` keeps its own `flash_tmr` toggle for the DYING state; the two
+can never fight because `do_play` runs only in PLAYING.
+
+**HUD indicator** — `gstart` writes a PETSCII "P" (`$10`) at `$0400+28`
+with white colour when charged, space + black otherwise.  Safe because
+the DSL HUD covers cols 0–26 and `dmz_do` covers rows 1–24.
+
+---
+
 ## Sound System
 
 The dodge game uses sound presets from `macros/sound_presets.acme`.

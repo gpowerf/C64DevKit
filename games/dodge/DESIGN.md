@@ -4,6 +4,7 @@
 - **WASD** — move player
 - **SPACE** — start game (splash screen) / restart (game over)
 - **SPACE** (debug) — cycle levels 1→2→3→4→5→1 (compile-time flag `CHEAT_KEYS`)
+- **FIRE** (joystick port 2) / **LEFT SHIFT** (keyboard) — trigger powerup charge
 
 ## Visual zones
 Three vertical stripes via color RAM on solid block characters:
@@ -55,6 +56,8 @@ Every 1000 points the difficulty increases:
 
 A short SID chirp (voice 3, triangle wave) plays on level‑up.
 Enemy speed is fixed across all levels (removed the level‑3 ramp).
+The level variable is clamped at 5 (difficulty and HUD both cap there).
+Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ### Asteroids
 - Up to 3 independent rock sprites (sprites 2/3/4, block $85).
@@ -73,6 +76,19 @@ Enemy speed is fixed across all levels (removed the level‑3 ramp).
 - Sound: voice 1 sawtooth, 5000 Hz, instant ADSR, 20 frames.
 - Invincibility: 150 frames after respawn (~3 sec at 50 fps).
 - 10‑frame invincibility on game restart.
+- All invincibility flashes the player sprite (~6 Hz): flashing means immune.
+
+## Powerup
+- Reaching level 3 (or higher) awards one invincibility charge, capped at 1.
+- Triggered manually with FIRE (joystick port 2) or LEFT SHIFT (keyboard),
+  edge‑detected so it cannot auto‑fire while held.
+- Grants 2 seconds (100 frames) of invincibility via `hit_timer` — the
+  collision systems need no special casing.
+- If already invincible, the longer timer wins (`max(hit_timer, 100)`).
+- `sfx_powerup` (ascending 4‑note arpeggio) plays on activation.
+- Cheat‑key level cycling does not award charges.
+- HUD shows a white "P" at row 0, col 28 while a charge is held.
+- Unused charges persist through death and transitions; `restart` clears.
 
 ## Enemy AI
 - Starts at (100, 80).
@@ -113,6 +129,9 @@ behaviors:
       - display_text: {text: "lv:", row: 0, col: 22, color: 1}
       - display_number: {variable: level, row: 0, col: 25, digits: 1, color: 1, size: 1}
 ```
+
+The powerup charge indicator ("P") at row 0, col 28 is written by
+`game_logic.acme` (the DSL HUD only covers cols 0–26).
 
 ## Memory layout
 ```

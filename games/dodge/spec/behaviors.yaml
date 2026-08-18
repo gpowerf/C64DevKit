@@ -71,6 +71,13 @@
 #   trans_tmr    1 B    0       Transition countdown timer (90 frames)
 #   trans_level  1 B    0       Level number to display during transition
 #   trans_done   1 B    0       Text drawn flag (one-shot)
+#   ship_ctr     1 B    0       Ship animation counter (every 8 frames)
+#   ship_frame   1 B    0       Ship animation frame (0–1)
+#   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
+#   enemy_frame  1 B    0       Enemy animation frame (0–3)
+#   pwr_avail    1 B    0       Invincibility charge available (0/1)
+#   pwr_flash    1 B    0       Flash cycle counter during invincibility
+#   pwr_key      1 B    0       Fire/shift edge state (0=held, 1=released)
 #
 #   Framework-provided (accessible from routines):
 #     frame_ready    1 B    —   Set to 1 after raster IRQ, cleared after use
@@ -144,9 +151,10 @@ behaviors:
 #   1. Always run sfx_gate_off + sfx_tick_all + dmz_do
 #   2. If SPLASH: jump to do_splash, own frame loop (bypasses everything)
 #   3. If TRANSITION: jump to do_transition (draw text, countdown)
-#   4. Else: keyboard + cheat_keys + player animation + level_update +
-#            ast_update + radar_do
-#   5. If PLAYING: do_play (enemy_do, score_do, collision_do, ast_collision)
+#   4. Else: keyboard + cheat_keys + player animation + powerup HUD
+#            indicator + level_update + ast_update + radar_do
+#   5. If PLAYING: do_play (pwr_check, enemy_do, score_do, collision_do,
+#            ast_collision, invincibility flash)
 #   6. If DYING:   do_die (flash, timer, respawn or game over)
 #   7. If GAME_OVER: do_over (draw text, wait for SPACE, restart)
 #
@@ -466,7 +474,8 @@ behaviors:
 #   When score high byte exceeds prev_k:
 #     prev_k = score_hi   (tracks highest 256-point threshold seen)
 #     level++
-#     If level > 5: clamp to 5 for table lookup
+#     If level > 5: level = 5   (variable clamped — HUD never shows 6+)
+#     If level >= 3: pwr_avail = 1  (award powerup charge)
 #     Apply new difficulty from tables
 #     Play level-up chirp on voice 3
 #
@@ -696,13 +705,19 @@ behaviors:
 #   4. Check SPACE bar (write $7F → $DC00, read $DC01 bit 4)
 #      AND joystick port 2 fire (write $00 → $DC02, read $DC00 bit 4,
 #      restore $FF → $DC02)
-#   5. If either pressed:
+#   5. Testability hook: if state != GAME_SPLASH, exit via the normal
+#      start path.  Inert during real play (nothing writes state while
+#      splashing) — VICE-monitor tests poke state to leave the splash.
+#   6. If SPACE/fire pressed OR state changed:
 #        - Set init_done = 0  (forces do_init re-run with game screen)
 #        - Enable sprites 0+1 ($D015 = $03)
 #        - Set state = PLAYING
 #        - Return to main loop (splash never runs again)
 #      Else:
-#        - Jump back to step 1 (loop forever)
+#        - Jump back to the loop top (splash_wait label) forever
+#
+# The loop top is a global label (splash_wait) so the test harness can
+# breakpoint inside the loop — main_loop is unreachable while splashing.
 #
 # Side bars (splash_bars, called from frame loop):
 #   - dmz_timer-style 3-frame cycle
@@ -756,6 +771,61 @@ behaviors:
 #       Set last_safe = 1  (prevents re-penalty until leaving DMZ)
 #   - In DMZ: zone_ticks = 0  (no green-zone credit)
 #   - Leaving DMZ: last_safe = 0  (re-arms penalty for next entry)
+#
+# =============================================================================
+# System 17 — Powerup (Fire-Triggered Invincibility Charge)
+# =============================================================================
+#
+# Reaching level 3 (or higher) awards one invincibility charge.
+# The charge is triggered manually with FIRE (joystick port 2) or
+# LEFT SHIFT (keyboard), granting 2 seconds (100 frames) of flashing
+# invincibility.  No powerup sprite exists — it is an ability, not
+# an item.
+#
+# Award (in level_update):
+#   After level++ and the level clamp, if level >= 3:
+#     pwr_avail = 1
+#   Charge is capped at 1 (leveling up again refreshes it).
+#   Cheat-key level cycling does NOT award charges (bypasses the
+#   score-threshold path).
+#
+# Trigger (pwr_check, called from do_play each PLAYING frame):
+#   Reads FIRE:  $DC02 = $00 (all inputs), $DC00 bit 4, restore $FF.
+#   Reads LEFT SHIFT: $FD → $DC00, $DC01 bit 7.
+#   Edge detection via pwr_key (same pattern as cheat_spc):
+#     pwr_key = 0 while held, 1 when released.
+#     Trigger only on the released → pressed edge.
+#   On trigger:
+#     pwr_avail = 0 (consumed)
+#     hit_timer = max(hit_timer, 100)   — keeps longer existing
+#                                         invincibility intact
+#     pwr_flash = 0
+#     jsr sfx_powerup (ascending 4-note arpeggio, voice 1)
+#   Reusing hit_timer means collision_do and ast_collision need no
+#   changes — immunity is automatic.
+#
+# Unified invincibility flash (end of do_play):
+#   While hit_timer > 0: pwr_flash counts 4-frame cycles; at 0 it
+#   toggles $D015 bit 0 (sprite 0 visibility) and resets to 4.
+#   This applies to ALL invincibility — the powerup and the existing
+#   150-frame post-respawn grace — so flashing always means immune.
+#   When hit_timer reaches 0, sprite 0 is force-enabled
+#   (ORA #$01) so the flash never ends on a hidden frame.
+#   DYING uses its own flash (do_die + flash_tmr); the two states
+#   never overlap because do_play only runs in PLAYING.
+#
+# HUD indicator (gstart, all non-splash states):
+#   pwr_avail = 1 → PETSCII $10 ("P") at $0400+28, white (1) at
+#   $D800+28.
+#   pwr_avail = 0 → space + black.
+#   Safe: the DSL HUD writes cols 0–26 only; dmz_do writes rows 1–24.
+#
+# Lifecycle:
+#   restart: pwr_avail = pwr_flash = pwr_key = 0.
+#   Transition: charge persists (it was just awarded); hit_timer = 30
+#     may shorten an active powerup — acceptable.
+#   Death while powered: DYING stops the flash; respawn sets
+#     hit_timer = 150 and $D015 = $03 (sprite visible).
 #
 # =============================================================================
 

@@ -1,5 +1,12 @@
 # dodge — Roadmap
 
+## Completed
+
+- **Powerup (fire-triggered invincibility charge)** — reaching level 3+
+  awards one charge; FIRE or LEFT SHIFT grants 2s of flashing
+  invincibility. No sprite art needed. Documented in `behaviors.yaml`
+  (System 17), `DESIGN.md`, `ASSEMBLY.md`.
+
 ## Animation — Alternate Sprite Frames
 
 Sprite animation is implemented (2-frame ship, 4-frame enemy) but currently

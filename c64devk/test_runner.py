@@ -32,11 +32,11 @@ class Assertion:
         a.addr = _parse_addr(d.get("addr", d.get("address", 0)))
         a.label = str(d.get("label", ""))
         a.size = int(d.get("size", 1))
-        a.expected = d.get("eq", d.get("equals"))
-        a.gt = d.get("gt", d.get("greater_than"))
-        a.lt = d.get("lt", d.get("less_than"))
-        a.gte = d.get("gte")
-        a.lte = d.get("lte")
+        a.expected = _parse_optional_int(d.get("eq", d.get("equals")))
+        a.gt = _parse_optional_int(d.get("gt", d.get("greater_than")))
+        a.lt = _parse_optional_int(d.get("lt", d.get("less_than")))
+        a.gte = _parse_optional_int(d.get("gte"))
+        a.lte = _parse_optional_int(d.get("lte"))
         if a.what == "sprite_x":
             a.addr = 0xD000 + a.sprite_index * 2
         elif a.what == "sprite_y":
@@ -78,10 +78,12 @@ class TestCase:
     name: str
     steps: list[dict] = field(default_factory=list)
     checks: list[Assertion] = field(default_factory=list)
+    start_in_splash: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "TestCase":
         t = cls(name=d.get("name", "unnamed"))
+        t.start_in_splash = d.get("start") == "splash"
         for step in d.get("steps", []):
             if isinstance(step, dict):
                 t.steps.append(step)
@@ -120,7 +122,7 @@ class TestResult:
         return "PASS" if self.passed else "FAIL"
 
 
-def _parse_addr(v) -> int:
+def _parse_addr(v, symbols=None) -> int:
     if isinstance(v, int):
         return v
     v = str(v).strip()
@@ -128,7 +130,25 @@ def _parse_addr(v) -> int:
         return int(v[1:], 16)
     if v.startswith("0x"):
         return int(v, 16)
+    if symbols is not None:
+        base, sep, off = v.partition("+")
+        base = base.strip()
+        if sep and base in symbols:
+            return symbols[base] + int(off)
+        if v in symbols:
+            return symbols[v]
     return int(v)
+
+
+def _parse_optional_int(v):
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
+    try:
+        return _parse_addr(v)
+    except (ValueError, TypeError):
+        return None
 
 
 def _safe_lbl(name: str) -> str:
@@ -316,9 +336,55 @@ def run_test_in_fresh_vice(prg_path: Path, sym_path: Path,
 
     monitor.disable_breakpoints()
     tr = TestResult(test_name=f"live:{test.name}")
+    _escape_splash(monitor, symbols, main_loop, test)
+    if not test.start_in_splash:
+        # Park the CPU at game_logic (before its body executes) so the
+        # test's first poke → advance 1 → check sequence sees exactly
+        # one full game_logic execution.
+        frame_label = symbols.get("game_logic", main_loop)
+        monitor.step_frame(frame_label, timeout=5.0)
+        monitor.disable_breakpoints()
     _run_test_case(monitor, symbols, main_loop, spec, test, tr)
     monitor.kill_vice(proc)
     return tr
+
+
+def _escape_splash(monitor, symbols, main_loop, test):
+    """Exit the splash screen before running a gameplay test.
+
+    Games with a splash screen (state == 3) loop internally and never
+    return to main_loop, so frame-synced pokes are impossible while it
+    runs.  The escape is deterministic: stop the CPU inside the splash
+    loop (the game exports a `splash_wait` label for this), poke state
+    to PLAYING, and let the splash loop's exit hook (which checks state
+    each iteration) return control to main_loop.
+    Tests that explicitly verify splash behaviour opt out via
+    `start: splash` in tests.yaml."""
+    if test.start_in_splash:
+        return
+    state_sym = symbols.get("state", 0)
+    if not state_sym:
+        return
+    try:
+        if monitor.peek(state_sym, 1) != 3:
+            return
+    except Exception:
+        return
+    splash_wait = symbols.get("splash_wait", 0)
+    if not splash_wait:
+        monitor.poke(state_sym, 0)
+        time.sleep(0.3)
+        monitor.step_frame(main_loop, timeout=5.0)
+        monitor.disable_breakpoints()
+        return
+    monitor.set_breakpoint(splash_wait)
+    time.sleep(0.1)
+    monitor.continue_execution()
+    time.sleep(0.5)
+    monitor.disable_breakpoints()
+    monitor.poke(state_sym, 0)
+    monitor.step_frame(main_loop, timeout=5.0)
+    monitor.disable_breakpoints()
 
 
 def _check_init_state(monitor, spec, result):
@@ -337,18 +403,23 @@ def _check_init_state(monitor, spec, result):
 
 def _run_test_case(monitor, symbols, main_loop, spec, test, result):
     """Execute a test case: run each step in sequence, stop on first failure."""
+    # Advance frames at game_logic (executed once per frame, after the
+    # wait_frame sync).  Breaking at main_loop is unreliable: its
+    # wait_frame spin branches back to main_loop itself, so the
+    # breakpoint re-hits instantly without advancing a frame.
+    frame_label = symbols.get("game_logic", main_loop)
     for step in test.steps:
-        _exec_step(monitor, symbols, main_loop, spec, step, result)
+        _exec_step(monitor, symbols, frame_label, spec, step, result)
         if not result.passed:
             break
 
 
-def _exec_step(monitor, symbols, main_loop, spec, step, result):
+def _exec_step(monitor, symbols, frame_label, spec, step, result):
     """Execute a single test step (advance, wait, poke, or check)."""
     if "advance" in step:
-        _exec_advance(monitor, main_loop, int(step["advance"]), result, symbols)
+        _exec_advance(monitor, frame_label, int(step["advance"]), result, symbols)
     elif "wait" in step:
-        _exec_advance(monitor, main_loop, int(step["wait"]), result, symbols)
+        _exec_advance(monitor, frame_label, int(step["wait"]), result, symbols)
     elif "poke" in step:
         _exec_poke(monitor, symbols, step["poke"], result)
     elif "check" in step:
@@ -358,27 +429,27 @@ def _exec_step(monitor, symbols, main_loop, spec, step, result):
         result.failures.append(f"unknown step: {list(step.keys())}")
 
 
-def _exec_advance(monitor, main_loop, frames, result, symbols=None):
-    """Advance emulation by N frames via breakpoints at main_loop.
+def _exec_advance(monitor, frame_label, frames, result, symbols=None):
+    """Advance emulation by N frames via breakpoints at the frame label.
     
     After each frame, checks if the game crashed by reading the state
     variable and verifying PC is in user code ($0800-$CFFF)."""
     state_addr = symbols.get("state", 0) if symbols else 0
     for i in range(frames):
-        if not monitor.step_frame(main_loop):
+        if not monitor.step_frame(frame_label):
             result.passed = False
             result.failures.append(f"advance frame {i+1}/{frames} failed")
             return
         monitor.disable_breakpoints()
-        # Crash check: verify state is still a valid game state (0-3)
+        # Crash check: verify state is still a valid game state (0-4)
         if state_addr:
             try:
                 state_val = monitor.peek(state_addr, 1)
-                if state_val > 3:
+                if state_val > 4:
                     result.passed = False
                     result.failures.append(
                         f"CRASH at frame {i+1}/{frames}: state={state_val} "
-                        f"(expected 0-3, game returned to BASIC or corrupted)")
+                        f"(expected 0-4, game returned to BASIC or corrupted)")
                     return
             except Exception:
                 pass  # can't check, skip
@@ -394,7 +465,7 @@ def _resolve_addr(symbols, addr, label):
 def _exec_poke(monitor, symbols, params, result):
     """Write value(s) to emulated memory. Supports addr, label, and size."""
     addr = _resolve_addr(symbols,
-                         _parse_addr(params.get("addr", params.get("address", 0))),
+                         _parse_addr(params.get("addr", params.get("address", 0)), symbols),
                          str(params.get("label", "")))
     value = int(params.get("value", 0))
     size = int(params.get("size", 1))
@@ -413,9 +484,9 @@ def _exec_check(monitor, symbols, params, result):
         state_addr = symbols.get("state", 0)
         if state_addr:
             state_val = monitor.peek(state_addr, 1)
-            if state_val > 3:
+            if state_val > 4:
                 result.passed = False
-                result.failures.append(f"CRASH detected: state={state_val} (expected 0-3)")
+                result.failures.append(f"CRASH detected: state={state_val} (expected 0-4)")
         return
     
     addr = _resolve_addr(symbols, assertion.addr, assertion.label)
