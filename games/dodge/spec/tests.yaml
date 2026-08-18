@@ -178,7 +178,7 @@ tests:
       - advance: 2
       - check: {what: memory, label: level, gte: 2}
 
-  - name: level_clamped_to_5
+  - name: level_continues_past_5
     steps:
       - poke: {label: state, value: 0}
       - poke: {label: level, value: 9}
@@ -186,7 +186,8 @@ tests:
       - poke: {label: score, value: 0}
       - poke: {addr: score+1, value: 10}     # hi byte → score ≈ 2560
       - advance: 2
-      - check: {what: memory, label: level, lte: 5}
+      - check: {what: memory, label: level, eq: 10}
+      - check: {what: memory, label: speed_frac, eq: 179}   # difficulty capped
 
   # ─── Asteroid system ─────────────────────────────────────────────────
   - name: asteroids_spawn_at_level_2

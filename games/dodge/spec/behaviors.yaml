@@ -46,7 +46,8 @@
 #   dmz_timer    1 B    1       DMZ refresh countdown (refreshes at 0, resets to 3)
 #   dmz_col      1 B    0       DMZ column index (unused, historical)
 #   dmz_row      1 B    1       DMZ row index (unused, historical)
-#   level        1 B    1       Difficulty level (1–5+, clamped to 5 for tables)
+#   level        1 B    1       Level counter (increments forever; difficulty
+#                               tables cap at 5)
 #   prev_k       1 B    0       Previous score-hi-byte threshold for level-up
 #   speed_frac   1 B    128     Enemy fractional speed (128 = 25 px/s at 50 fps)
 #   ast_timer    1 B    40      Countdown to next asteroid spawn
@@ -111,7 +112,7 @@ behaviors:
       - display_text: {text: "  lives:", row: 0, col: 11, color: 1}
       - display_number: {variable: lives, row: 0, col: 19, digits: 1, color: 1, size: 1}
       - display_text: {text: "lv:", row: 0, col: 22, color: 1}
-      - display_number: {variable: level, row: 0, col: 25, digits: 1, color: 1, size: 1}
+      - display_number: {variable: level, row: 0, col: 25, digits: 2, color: 1, size: 1}
 
 
 # =============================================================================
@@ -131,7 +132,8 @@ behaviors:
 #   GAME_PLAYING = 0   Normal gameplay
 #   GAME_DYING   = 1   Player just hit; flash + timer before respawn
 #   GAME_OVER    = 2   Lives exhausted; "game over" + SPACE to restart
-#   GAME_TRANSITION = 4  Between levels: "LEVEL X" display, reset, timer
+#   GAME_TRANSITION = 4  Between levels: "LEVEL X" display (1–2 digits,
+#                         leading space below 10), reset, timer
 #
 # Transitions:
 #   SPLASH → PLAYING     SPACE pressed (re-runs do_init, enables sprites)
@@ -474,10 +476,13 @@ behaviors:
 #   When score high byte exceeds prev_k:
 #     prev_k = score_hi   (tracks highest 256-point threshold seen)
 #     level++
-#     If level > 5: level = 5   (variable clamped — HUD never shows 6+)
 #     If level >= 3: pwr_avail = 1  (award powerup charge)
 #     Apply new difficulty from tables
 #     Play level-up chirp on voice 3
+#
+# Levels continue beyond 5 — the counter, HUD (2-digit display) and
+# transition screen show the real number.  Only the difficulty table
+# lookup caps (index clamped to 5, the last table row).
 #
 # Difficulty tables:
 #   level_speeds:  [128,  128,  128,  154,  179]  = 25, 25, 25, 30, 35 px/s
@@ -783,7 +788,7 @@ behaviors:
 # an item.
 #
 # Award (in level_update):
-#   After level++ and the level clamp, if level >= 3:
+#   After level++, if level >= 3:
 #     pwr_avail = 1
 #   Charge is capped at 1 (leveling up again refreshes it).
 #   Cheat-key level cycling does NOT award charges (bypasses the

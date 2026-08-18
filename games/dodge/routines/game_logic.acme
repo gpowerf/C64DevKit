@@ -1138,13 +1138,34 @@ do_transition:
     inx
     bne .t_lp
 .t_num:
-    ;; draw level digit
+    ;; draw level number (1-2 digits) at row 12, col 22
     lda trans_level
+    ldx #0
+.t_tens:
+    cmp #10
+    bcc .t_tdone
+    sbc #10
+    inx
+    bne .t_tens          ; level < 256 so X stops at tens digit
+.t_tdone:
+    pha                  ; save ones digit
+    txa
+    beq .t_space
     clc
-    adc #$30            ; convert 1-5 to PETSCII '1'-'5'
+    adc #$30             ; tens to PETSCII digit
+    jmp .t_store
+.t_space:
+    lda #$20             ; leading space for single digits
+.t_store:
     sta $0400+12*40+16+6
     lda #1
     sta $d800+12*40+16+6
+    pla
+    clc
+    adc #$30             ; ones to PETSCII digit
+    sta $0400+12*40+16+7
+    lda #1
+    sta $d800+12*40+16+7
 .t_rts:
     rts
 
@@ -1177,13 +1198,6 @@ level_update:
     bcc .no_up
     sta prev_k
     inc level
-    ;; Clamp level variable at 5 (difficulty caps, HUD never shows 6+)
-    lda level
-    cmp #6
-    bcc .lv_clamped
-    lda #5
-    sta level
-.lv_clamped:
     ;; Award powerup charge at level 3+ (capped at 1)
     lda level
     cmp #3

@@ -44,19 +44,22 @@ Yars' Revenge style digital noise — full-zone colour-RAM refresh every 3 frame
 - SPACE restarts: lives=3, score=0, player at (160,120), enemy at (100,80)
 
 ## Levels
-Every 1000 points the difficulty increases:
+Level-ups fire every 256 points (when the score high byte crosses a new
+value). Difficulty caps at level 5; the level counter keeps climbing and
+the HUD shows the real number.
 
 | Level | Score | Asteroids | Enemy Speed | Spawn Delay |
 |-------|-------|-----------|-------------|-------------|
-| 1 | 0–999 | 0 | Slow (every 2 frames) | — |
-| 2 | 1000–1999 | 1 | Slow | ~30 frames |
-| 3 | 2000–2999 | 1 | Slow | ~30 frames |
-| 4 | 3000–3999 | 2 | Slow | ~30 frames |
-| 5+ | 4000+ | 3 | Slow | ~30 frames |
+| 1 | 0–255 | 0 | 25 px/s | — |
+| 2 | 256–511 | 1 | 25 px/s | 40 frames |
+| 3 | 512–767 | 1 | 25 px/s | 30 frames |
+| 4 | 768–1023 | 2 | 30 px/s | 25 frames |
+| 5 | 1024–1279 | 3 | 35 px/s | 20 frames |
+| 6+ | 1280+ | 3 | 35 px/s | 20 frames |
 
 A short SID chirp (voice 3, triangle wave) plays on level‑up.
 Enemy speed is fixed across all levels (removed the level‑3 ramp).
-The level variable is clamped at 5 (difficulty and HUD both cap there).
+Difficulty tables only have 5 entries, so levels 6+ reuse the level‑5 row.
 Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ### Asteroids
@@ -127,7 +130,7 @@ behaviors:
       - display_text: {text: "  lives:", row: 0, col: 11, color: 1}
       - display_number: {variable: lives, row: 0, col: 19, digits: 1, color: 1, size: 1}
       - display_text: {text: "lv:", row: 0, col: 22, color: 1}
-      - display_number: {variable: level, row: 0, col: 25, digits: 1, color: 1, size: 1}
+      - display_number: {variable: level, row: 0, col: 25, digits: 2, color: 1, size: 1}
 ```
 
 The powerup charge indicator ("P") at row 0, col 28 is written by

@@ -11,36 +11,35 @@ the reusable patterns and explains the architecture.
 ```
 Lines 1–6     Comment header, CHEAT_KEYS constant
 Line 7         jmp gstart          ← skip variable data
-Lines 10–54    !byte variables     ← 45 game-state variables
-Lines 56–60    Constants (GAME_PLAYING=0, GAME_DYING=1, GAME_OVER=2, GAME_SPLASH=3)
-Lines 62–93    gstart:             ← frame dispatcher (jsr chain + state switch)
-Lines 96–207   init_once / do_init ← one-shot screen setup
-Lines 212–219  do_play:            ← PLAYING state dispatch
-Lines 224–268  do_die:             ← DYING state (flash + timer)
-Lines 273–304  do_over:            ← GAME_OVER state (draw + wait)
-Lines 306–346  draw_gameover       ← screen text + colour RAM
-Lines 349–445  restart:            ← reset all state on replay
-Lines 450–528  keyboard_read:      ← WASD keyboard scan
-Lines 529–612  (joystick port 2)   ← inline joystick reads
-Lines 617–691  enemy_do:           ← enemy chase AI
-Lines 696–764  score_do:           ← zone-based scoring
-Lines 769–871  collision_do:       ← player–enemy collision
-Lines 876–885  sound_tick:         ← legacy sound timer
-Lines 890–931  level_update:       ← level thresholds
-Lines 936–944  ast_angles:         ← 32-entry spawn direction table
-Lines 949–1176 ast_spawn:          ← asteroid spawning
-Lines 1183–1271 ast_preview:       ← next-spawn position pre-roll
-Lines 1273–1443 ast_update:        ← asteroid movement + despawn
-Lines 1445–1585 ast_collision:     ← player–asteroid collision
-Lines 1590–1646 radar_do:          ← radar warning indicator
-Lines 1651–1661 lfsr_tick:         ← Galois LFSR RNG
-Lines 1663–1690 dmz_init:         ← DMZ colour RAM init fill
-Lines 1692–1727 dmz_do:            ← DMZ per-frame static refresh
-Lines 1729–1757 d_mul40:           ← row × 40 multiply
-Lines 1766–2024 cheat_keys:        ← SPACE level-cycle debug
-Lines 2029–2044 chk_sid:           ← cheat level-up sound
-Lines 2048–2214 do_splash / draw_splash / splash_bars  ← splash screen
-Lines 2216     * = $2140 → rock.spr binary data
+Lines 10–67    !byte variables     ← 48 game-state variables
+Lines 69–73    Constants (GAME_PLAYING=0, GAME_DYING=1, GAME_OVER=2, GAME_SPLASH=3, GAME_TRANSITION=4)
+Lines 76–190   gstart:             ← frame dispatcher (jsr chain + state switch)
+Lines 192–309  init_once / do_init ← one-shot screen setup
+Lines 310–388  do_play + pwr_check ← PLAYING state + fire/shift powerup trigger
+Lines 389–437  do_die:             ← DYING state (flash + timer)
+Lines 438–503  do_over:            ← GAME_OVER state (draw + wait)
+Lines 504–622  restart:            ← reset all state on replay
+Lines 623–790  keyboard_read:      ← WASD keyboard scan + joystick port 2
+Lines 790–884  enemy_do:           ← enemy chase AI
+Lines 885–957  score_do:           ← zone-based scoring
+Lines 958–1051 collision_do:       ← player–enemy collision
+Lines 1052–1176 do_transition:     ← "LEVEL X" screen (1–2 digit display)
+Lines 1177–1191 sound_tick:        ← legacy sound timer
+Lines 1192–1242 level_update:      ← level thresholds (every 256 pts, uncapped counter)
+Lines 1243–1255 ast_angles:        ← 32-entry spawn direction table
+Lines 1256–1489 ast_spawn:         ← asteroid spawning
+Lines 1490–1583 ast_preview:       ← next-spawn position pre-roll
+Lines 1584–1755 ast_update:        ← asteroid movement + despawn
+Lines 1756–1887 ast_collision:     ← player–asteroid collision
+Lines 1888–1960 radar_do:          ← radar warning indicator
+Lines 1961–1972 lfsr_tick:         ← Galois LFSR RNG
+Lines 1973–2001 dmz_init:          ← DMZ colour RAM init fill
+Lines 2002–2038 dmz_do:            ← DMZ per-frame static refresh
+Lines 2039–2075 d_mul40:           ← row × 40 multiply
+Lines 2076–2350 cheat_keys:        ← SPACE level-cycle debug
+Lines 2351–2355 chk_sid:           ← cheat level-up sound
+Lines 2356–2532 do_splash / draw_splash / splash_bars  ← splash screen
+Lines 2533+    * = $2140 → animation frame + rock + radar sprite data
 Lines 2220     * = $2180 → radar sprite data
 ```
 
