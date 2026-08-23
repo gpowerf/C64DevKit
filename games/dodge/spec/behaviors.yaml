@@ -2,7 +2,7 @@
 # Sprite Dodge — Complete Game Specification
 # =============================================================================
 #
-# The player controls a ship avoiding an enemy skull and asteroids.
+# The player controls a ship avoiding an enemy octopus and asteroids.
 # Score accumulates while the ship stays in the green zone (left side).
 # The DMZ (right side, cols 28–39) provides collision immunity at a cost.
 # Level increases every 1000 points; enemy speed and asteroid count rise.
@@ -72,10 +72,10 @@
 #   trans_tmr    1 B    0       Transition countdown timer (90 frames)
 #   trans_level  1 B    0       Level number to display during transition
 #   trans_done   1 B    0       Text drawn flag (one-shot)
-#   ship_ctr     1 B    0       Ship animation counter (every 8 frames)
+#   ship_ctr     1 B    0       Ship animation counter (every 2 frames)
 #   ship_frame   1 B    0       Ship animation frame (0–1)
 #   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
-#   enemy_frame  1 B    0       Enemy animation frame (0–3)
+#   enemy_frame  1 B    0       Enemy animation frame (0–6)
 #   pwr_avail    1 B    0       Invincibility charge available (0/1)
 #   pwr_flash    1 B    0       Flash cycle counter during invincibility
 #   pwr_key      1 B    0       Fire/shift edge state (0=held, 1=released)
@@ -183,11 +183,11 @@ behaviors:
 #      Clear $D010 bit 1 (enemy MSB)
 #   7. Call dmz_init — fill entire DMZ (288 cells) with LFSR noise once
 #   8. Init asteroid sprites:
-#        Set pointers $07FA/$07FB/$07FC = $85  (all point to rock.spr)
+#        Set pointers $07FA/$07FB/$07FC = $90  (all point to rock.spr at $2400)
 #        Set colours: sprite 2=yellow(7), 3=orange(8), 4=light-red(10)
 #        Place off-screen: X=0, Y=250
 #   9. Init radar sprite:
-#        Set pointer $07FD = $86
+#        Set pointer $07FD = $91  (crosshair data at $2440)
 #        Set colour: yellow(7)
 #        Place off-screen: X=0, Y=250
 #
@@ -233,11 +233,22 @@ behaviors:
 #          If X=255: increment + set MSB.
 #          Else: increment X.
 #
-# Player directional animation:
-#   Every frame: sprite pointer $07F8 = $80 + player_dir
-#   This selects one of four 64-byte sprite data blocks:
-#     $80 → $2000 (right), $81 → $2040 (left),
-#     $82 → $2080 (up),    $83 → $20C0 (down)
+# Player directional animation (2-frame cycle, alternates every 2
+# frames via anim_update / ship_ctr — 25 Hz flicker at 50 Hz, fast
+# enough that the two trail positions blend on the phosphor and the
+# exhaust reads as translucent):
+#   Every frame: sprite pointer $07F8 = $80 + player_dir + ship_frame * 5
+#   This selects one of eight 64-byte sprite data blocks:
+#     $80 → $2000 (right, frame 0), $81 → $2040 (left,  frame 0),
+#     $82 → $2080 (up,    frame 0), $83 → $20C0 (down,  frame 0),
+#     $85 → $2140 (right, frame 1), $86 → $2180 (left,  frame 1),
+#     $87 → $21C0 (up,    frame 1), $88 → $2200 (down,  frame 1)
+#   ($84 is the enemy skull frame 0, hence the *5 skip over it.)
+#   Frame 1 art ("surge" pose): the diagonal exhaust streak shifts
+#   one step along the hull (right/left) or the V-shaped engine flare
+#   cuts out (up/down), and the nose claw pinches 1px — the 2-frame
+#   cycle reads as a firing engine.  l1/d1 are hand-drawn variants,
+#   not mechanical mirrors of r1/u1.
 #
 # X-position constraint detail:
 #   The DMZ boundary is at X=224 (low byte, MSB=0).
@@ -292,7 +303,7 @@ behaviors:
 # System 5 — Enemy AI (enemy_do)
 # =============================================================================
 #
-# The enemy skull chases the player at level-dependent speed.
+# The enemy octopus chases the player at level-dependent speed.
 #
 # Logic:
 #   1. First frame (enemy_init==0): copy enemy_x / enemy_y to VIC registers,
@@ -329,6 +340,19 @@ behaviors:
 #   Enemy uses software variables for sub-pixel precision (the speed
 #   accumulator skips frames), then writes to VIC registers every
 #   movement frame.
+#
+# Enemy animation — octopus, hand-drawn cycle (7 frames, advances
+# every 6 frames via anim_update / enemy_ctr — 42-frame loop at 50 Hz):
+#   Every frame: sprite pointer $07F9 = $84 + enemy_frame (+4 skip
+#   when enemy_frame > 0, jumping over the four ship frame-1 blocks):
+#     $84 → $2100 (skull,  frame 0 — rest pose),
+#     $89 → $2240 (skull1, frame 1) … $8E → $2380 (skull6, frame 6)
+#   Frame 0 is the resting pose.  Frames 1-6 are hand-drawn: the
+#   tentacles spread progressively (web opening wider, tips shifting
+#   outward); frame 6 is the widest and the cycle wraps back to the
+#   rest pose of frame 0.  Mantle and eyes stay fixed.
+#   Block $8F ($23C0) is free, reserved for future frames.
+#   (Sprite files keep the historical skull* prefix.)
 #
 
 
@@ -511,7 +535,7 @@ behaviors:
 #
 # The asteroid system manages three VIC-II hardware sprites (indices 2–4)
 # that fly across the screen in straight lines from the four edges.
-# All three share the same rock sprite data ($2140, pointer $85).
+# All three share the same rock sprite data ($2400, pointer $90).
 # Active slots are tracked in ast_active bitmask.
 #
 # --- Spawn direction table (ast_angles, 32 signed-byte pairs) ---

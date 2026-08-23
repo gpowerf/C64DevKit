@@ -7,33 +7,60 @@
 #   │ Idx│ Name     │ Colour│ Description                  │
 #   ├────┼──────────┼───────┼─────────────────────────────┤
 #   │  0 │ player   │   7   │ Ship, 4 directional frames   │
-#   │  1 │ enemy    │   2   │ Skull, chases player         │
+#   │  1 │ enemy    │   2   │ Octopus, chases player       │
 #   │  2 │ asteroid_0│  7   │ Rock, spawned at level 2+    │
 #   │  3 │ asteroid_1│  8   │ Rock, spawned at level 4+    │
 #   │  4 │ asteroid_2│ 10   │ Rock, spawned at level 5+    │
 #   │  5 │ radar    │   7   │ Crosshair target indicator   │
 #   └────┴──────────┴───────┴─────────────────────────────┘
 #
+# Sprite animations (art in assets/sprites/, 24×21 hi-res):
+#   player — 2 frames per direction, alternating every 2 frames
+#            (25 Hz flicker; the exhaust trails blend into a
+#            translucent shimmer on the phosphor)
+#   enemy  — 7-frame hand-drawn tentacle cycle advancing every 6
+#            frames (file names keep the historical skull* prefix)
+#
 # Memory layout (all sprites at `sprite_data` = $2000):
-#   $2000  ship_r.spr   (player, right)   ptr $80 → $07F8
-#   $2040  ship_l.spr   (player, left)    ptr $81 → $07F8
-#   $2080  ship_u.spr   (player, up)      ptr $82 → $07F8
-#   $20C0  ship_d.spr   (player, down)    ptr $83 → $07F8
-#   $2100  skull.spr    (enemy)           ptr $84 → $07F9
-#   $2140  rock.spr     (asteroids)       ptr $85 → $07FA–$07FC
-#   $2180  inline data  (radar crosshair)  ptr $86 → $07FD
+#   $2000  ship_r.spr   (player, right, frame 0)  ptr $80 → $07F8
+#   $2040  ship_l.spr   (player, left,  frame 0)  ptr $81 → $07F8
+#   $2080  ship_u.spr   (player, up,    frame 0)  ptr $82 → $07F8
+#   $20C0  ship_d.spr   (player, down,  frame 0)  ptr $83 → $07F8
+#   $2100  skull.spr    (enemy, frame 0)          ptr $84 → $07F9
+#   $2140  ship_r1.spr  (player, right, frame 1)  ptr $85 → $07F8
+#   $2180  ship_l1.spr  (player, left,  frame 1)  ptr $86 → $07F8
+#   $21C0  ship_u1.spr  (player, up,    frame 1)  ptr $87 → $07F8
+#   $2200  ship_d1.spr  (player, down,  frame 1)  ptr $88 → $07F8
+#   $2240  skull1.spr   (enemy, frame 1)          ptr $89 → $07F9
+#   $2280  skull2.spr   (enemy, frame 2)          ptr $8A → $07F9
+#   $22C0  skull3.spr   (enemy, frame 3)          ptr $8B → $07F9
+#   $2300  skull4.spr   (enemy, frame 4)          ptr $8C → $07F9
+#   $2340  skull5.spr   (enemy, frame 5)          ptr $8D → $07F9
+#   $2380  skull6.spr   (enemy, frame 6)          ptr $8E → $07F9
+#   $23C0  (free — reserved for future frames)
+#   $2400  rock.spr     (asteroids)               ptr $90 → $07FA–$07FC
+#   $2440  inline data  (radar crosshair)         ptr $91 → $07FD
 #
 # The framework uses `data_files` to allocate 4 sprite-pointer slots
-# for the player.  The directional pointer is updated every frame:
-#   $07F8 = $80 + player_dir
-# where player_dir ∈ {0=right, 1=left, 2=up, 3=down}.
+# for the player (frame 0).  The pointer is updated every frame by
+# game_logic.acme:
+#   $07F8 = $80 + player_dir + ship_frame * 5
+# where player_dir ∈ {0=right, 1=left, 2=up, 3=down} and ship_frame ∈
+# {0, 1} alternates every 2 frames.  The *5 skips over the enemy
+# frame 0 at $84.  The enemy (octopus) cycles 7 hand-drawn frames:
+#   $07F9 = $84 + enemy_frame  (frame 0)
+#   $07F9 = $88 + enemy_frame  (frames 1–6, skipping the 4 ship blocks)
+# with enemy_frame ∈ {0..6} advancing every 6 frames (42-frame loop;
+# frame 6 is the widest, wrapping back to the rest pose of frame 0).
+# Animation frame files (ship_r1/l1/u1/d1, skull1–6) are emitted
+# directly by game_logic.acme via `!bin`, not via this spec.
 #
 # Asteroid sprites (2–4) share the same rock.spr data at $2140.
 # They are loaded outside the behaviour DSL by game_logic.acme
-# (do_init sets pointers $07FA–$07FC = $85; sprite positions and
-# visibility are managed by the asteroid system).
+# (do_init sets pointers $07FA–$07FC = $90, rock.spr at $2400; sprite
+# positions and visibility are managed by the asteroid system).
 #
-# Radar sprite (5) data is inline at $2180 — a small diamond crosshair
+# Radar sprite (5) data is inline at $2440 — a small diamond crosshair
 # 8×8 pixels centred in a 24×21 grid, surrounded by transparent bytes.
 # =============================================================================
 

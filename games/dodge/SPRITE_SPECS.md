@@ -1,7 +1,7 @@
 # Sprite Frame Specs — dodge
 
 All sprites: **24×21 pixels, hi-res** (1-bit per pixel, 64 bytes per file).
-Each `.spr` file = 63 bytes of pixel data + 1 unused byte.
+Each `.spr` file = 63 bytes of pixel data + 1 pad byte.
 
 ## Reference Art (frame 0)
 
@@ -12,60 +12,115 @@ Keep the outline and overall shape consistent across frames.
 
 | File | Direction | Block | Pixel buffer |
 |------|-----------|-------|--------------|
-| `ship_r1.spr` | Right | $85 | Copy `ship_r.spr`, tweak details |
-| `ship_l1.spr` | Left  | $86 | Copy `ship_l.spr`, tweak details |
-| `ship_u1.spr` | Up    | $87 | Copy `ship_u.spr`, tweak details |
-| `ship_d1.spr` | Down  | $88 | Copy `ship_d.spr`, tweak details |
+| `ship_r1.spr` | Right | $85 | Exhaust streak shifts, claw pinches |
+| `ship_l1.spr` | Left  | $86 | Independently drawn left variant |
+| `ship_u1.spr` | Up    | $87 | V-flare plume cuts out, glint slides |
+| `ship_d1.spr` | Down  | $88 | Independently drawn down variant |
 
-### Animation: 2-frame cycle, alternates every 8 frames (~7.5 fps at 50Hz)
+### Animation: 2-frame cycle, alternates every 2 frames (25 Hz — trails read as translucent)
 
 ### Design direction
 
-frame 0 is the "base" pose. frame 1 should be the "action" pose.
-Subtle differences are enough to read as animation:
+frame 0 is the "base" pose. frame 1 is the "surge" pose — the engine
+fires for one cycle:
 
-- **Right/Left**: Shift the exhaust/engine glow 1 pixel narrower, or
-  tilt the nose or wings by 1 pixel up/down.
-- **Up/Down**: Shift the wingtip/fin details by 1 pixel, or
-  make the engine nozzles flare open/closed.
-- The silhouette MUST match frame 0 within ±1 pixel to avoid
-  looking like the ship warps.
-- 2-4 pixels changed from frame 0 is usually enough.
+- **Right/Left**: The diagonal exhaust streak along the hull shifts/
+  blinks one cycle step (pixels move along the streak), and the nose
+  claw prongs pinch 1px toward the body.
+- **Up/Down**: The V-shaped engine flare under the hull cuts out (off
+  pulse), and the canopy glint slides one row.
+- The silhouette matches frame 0 within ±1 pixel.
+- l1/d1 are hand-drawn variants matching the base art's left/down
+  orientation — not mechanical mirrors of r1/u1.
 
-## Enemy (Skull) — Frames 1-3
+## Enemy (Octopus) — Frames 1-6
+
+The enemy art is an octopus (sprite files keep the historical `skull*`
+prefix): mantle dome with two eyes, a web where the arms merge, two
+side sweeps flaring out, and hanging tentacle tips below.
 
 | File | Block | Pixel buffer |
 |------|-------|--------------|
-| `skull1.spr` | $89 | Copy `skull.spr`, tweak details |
-| `skull2.spr` | $8A | Copy `skull.spr`, tweak details |
-| `skull3.spr` | $8B | Copy `skull.spr`, tweak details |
+| `skull.spr` | $84 | Rest pose |
+| `skull1.spr` | $89 | Tentacles spreading |
+| `skull2.spr` | $8A | Tentacles spreading |
+| `skull3.spr` | $8B | Web open, tips out |
+| `skull4.spr` | $8C | Wide |
+| `skull5.spr` | $8D | Wide |
+| `skull6.spr` | $8E | Widest |
 
-### Animation: 4-frame cycle, advances every 6 frames (~8.3 fps at 50Hz)
+### Animation: 7-frame cycle (0–6), advances every 6 frames (42-frame loop at 50Hz)
 
 ### Design direction
 
-frame 0 is the "closed jaw" pose. Alternate frames should open the jaw:
+Frame 0 is the resting pose.  Frames 1-6 are hand-drawn: the tentacles
+spread progressively — the web opens wider and the tips shift outward.
+Frame 6 is the widest; the cycle wraps straight back to the rest pose
+of frame 0.  Mantle and eyes stay fixed throughout.
 
-- **frame 1**: Jaw drops 1-2 pixels, eyes widen
-- **frame 2**: Jaw drops 2-3 pixels, eyes at widest
-- **frame 3**: Jaw at max, eyes slightly narrowed (peak of open)
-- Cycle reads as: closed → opening → open → wide-open → closed
+Block $8F ($23C0) is free, reserved for future animation frames.
 
-Keep the cranium (top dome) and cheekbones identical across all frames.
-Only the jaw and eyes change.
+## Editing workflow (LibreSprite round trip)
+
+`tools/sprtool.py` converts between the `.spr` files and animated GIFs
+that LibreSprite (or any pixel editor) can open.  Each GIF is one sprite
+set — frame 0 first, then the animation frames — at **native C64
+resolution (24×21)**: one image pixel per sprite pixel, so every brush
+stroke lands on a real pixel.  White = solid pixel, black = transparent;
+the VIC-II colour comes from `spec/sprites.yaml`, not the art.
+
+```bash
+python3 tools/sprtool.py unpack    # .spr -> sprite_edit/*.gif
+# edit sprite_edit/skull.gif in LibreSprite, save back over the GIF
+python3 tools/sprtool.py pack      # GIF -> .spr (also accepts zoomed PNG strips)
+c64devk build -p games/dodge
+```
+
+LibreSprite tips:
+- The canvas opens at 24×21 — **zoom in immediately** (`+` key,
+  Ctrl+wheel, or the magnifier in the bottom bar; ~1600% is comfortable).
+  Zoom is only a view setting; the sprite stays 24×21.
+- Frames of the GIF land in the timeline; switch with `,` / `.` or by
+  clicking the timeline.
+- Turn on **Onion Skin** (timeline panel) to see frame 0 as a ghost
+  while editing frame 1 — that is how you keep the silhouette within
+  ±1 pixel.
+- Pencil `B`, brush size 1, draw white; black (or eraser `E`) is
+  transparent.
+- Do not resize the canvas — it must stay 24×21.
+- Save as GIF over the same file.  A zoomed PNG sprite-sheet export
+  also works — `pack` auto-detects the scale — but GIFs keep the
+  frames stacked for you.
+- `python3 tools/sprtool.py render skull1` prints an ASCII preview of
+  any `.spr` straight from the command line.
+
+The radar crosshair is inline data in `routines/game_logic.acme`
+(`* = $2440`), not a `.spr` file — edit it there.
 
 ## Export
 
-Save each as a 64-byte raw `.spr` file in `games/dodge/assets/sprites/`.
-In Spritemate, use "Export → Raw binary (.spr)" with the C64 sprite
-template (24×21, hi-res).
+All frames are 64-byte raw `.spr` files in `games/dodge/assets/sprites/`
+(63 bytes of pixel data + pad byte, $00 for rock.spr and $01 elsewhere —
+the pad is unused by VIC-II). To tweak, use the LibreSprite round trip
+above, or edit the base `.spr` files directly in Spritemate
+("Export → Raw binary (.spr)", 24×21, hi-res) — the frame-1 files are
+standalone copies.
+
+## Wiring
+
+The animation frames are emitted by `routines/game_logic.acme`
+(`!bin` directives at blocks $85-$8E, after the DSL-managed base
+frames at $80-$84). Pointer math in `gstart` selects the block:
+`$07F8 = $80 + player_dir + ship_frame*5` and
+`$07F9 = $84 + enemy_frame` (+4 skip when > 0, frames 0–6).
 
 ## Verification
 
-After placing the files, run:
+After changing any frame file, run:
 ```bash
 c64devk build -p games/dodge
 c64devk run -p games/dodge
 ```
 
-The animation uses the new frames automatically — no code changes needed.
+Ship: hold a direction — the sprite flickers every 8 frames.
+Enemy: watch the skull — jaw cycles every 6 frames.

@@ -100,7 +100,8 @@ g0a:
     adc #5
 .sp_set:
     sta $07F8
-    ;; Set sprite 1 pointer = $84 + enemy_frame (skip 4 blocks if frame>0)
+    ;; Set sprite 1 pointer = $84 + enemy_frame (skip 4 blocks if frame>0,
+    ;; jumping over the ship frame-1 blocks; frames 0-6 → $84, $89-$8E)
     lda enemy_frame
     beq .en_base
     clc
@@ -158,13 +159,14 @@ gdone:
     rts
 
 ;; ============================================================
-;; Sprite animation — cycles ship (2 frames) and enemy (4 frames)
+;; Sprite animation — cycles ship (2 frames) and enemy (7 frames)
 ;; ============================================================
 anim_update:
-    ;; Ship: alternate every 8 frames
+    ;; Ship: alternate every 2 frames (25 Hz flicker — the two trail
+    ;; positions blend on the phosphor, reading as translucent exhaust)
     inc ship_ctr
     lda ship_ctr
-    cmp #8
+    cmp #2
     bcc .an_enemy
     lda #0
     sta ship_ctr
@@ -172,7 +174,8 @@ anim_update:
     eor #1
     sta ship_frame
 .an_enemy:
-    ;; Enemy: cycle 0-1-2-3 every 6 frames
+    ;; Enemy: cycle 0-6 every 6 frames (42-frame loop; frame 6 is the
+    ;; widest, wrapping back to the rest pose of frame 0)
     inc enemy_ctr
     lda enemy_ctr
     cmp #6
@@ -181,7 +184,7 @@ anim_update:
     sta enemy_ctr
     inc enemy_frame
     lda enemy_frame
-    cmp #4
+    cmp #7
     bcc .an_done
     lda #0
     sta enemy_frame
@@ -273,8 +276,8 @@ clr_col:
     and #$FD
     sta $d010
     jsr dmz_init
-    ;; Init asteroid sprites (2-4) — all point to rock at $2300 (block $8C)
-    lda #$8C
+    ;; Init asteroid sprites (2-4) — all point to rock at $2400 (block $90)
+    lda #$90
     sta $07FA
     sta $07FB
     sta $07FC
@@ -294,7 +297,7 @@ clr_col:
     sta $d007
     sta $d009
     ;; Init radar sprite 5 — pointer and color
-    lda #$8D
+    lda #$91
     sta $07FD
     lda #7              ; yellow
     sta $d02c
@@ -2528,30 +2531,46 @@ ds_title:  !scr "last star system", 0
 ds_press:  !scr "press fire to play", 0
 ds_credit: !scr "gpowerf 2026", 0
 
-;; --- Sprite animation frames (duplicates for now; TODO: create real alt frames) ---
+;; --- Sprite animation frames ---
 ;; Ship frame 1 (4 directions) — blocks $85-$88
-* = $2140   ; $85: ship_r1  TODO: create assets/sprites/ship_r1.spr
-    !bin "assets/sprites/ship_r.spr"
-* = $2180   ; $86: ship_l1  TODO: create assets/sprites/ship_l1.spr
-    !bin "assets/sprites/ship_l.spr"
-* = $21C0   ; $87: ship_u1  TODO: create assets/sprites/ship_u1.spr
-    !bin "assets/sprites/ship_u.spr"
-* = $2200   ; $88: ship_d1  TODO: create assets/sprites/ship_d1.spr
-    !bin "assets/sprites/ship_d.spr"
-;; Enemy frames 1-3 — blocks $89-$8B
-* = $2240   ; $89: skull1  TODO: create assets/sprites/skull1.spr
-    !bin "assets/sprites/skull.spr"
-* = $2280   ; $8A: skull2  TODO: create assets/sprites/skull2.spr
-    !bin "assets/sprites/skull.spr"
-* = $22C0   ; $8B: skull3  TODO: create assets/sprites/skull3.spr
-    !bin "assets/sprites/skull.spr"
+;; Frame 1 vs frame 0 ("surge" pose): the diagonal exhaust streak
+;; shifts one step along the hull (right/left) or the V-shaped engine
+;; flare cuts out (up/down), and the nose claw pinches 1px toward the
+;; body.  l1/d1 are hand-drawn variants matching the base art's
+;; left/down orientation — not mechanical mirrors of r1/u1.
+* = $2140   ; $85: ship_r1
+    !bin "assets/sprites/ship_r1.spr"
+* = $2180   ; $86: ship_l1
+    !bin "assets/sprites/ship_l1.spr"
+* = $21C0   ; $87: ship_u1
+    !bin "assets/sprites/ship_u1.spr"
+* = $2200   ; $88: ship_d1
+    !bin "assets/sprites/ship_d1.spr"
+;; Enemy frames 1-6 — blocks $89-$8E (7-frame cycle with frame 0)
+;; Hand-drawn cycle: the tentacles spread progressively (web opening
+;; wider, tips shifting outward); frame 6 is the widest and the cycle
+;; wraps back to the rest pose of frame 0.  Mantle and eyes stay
+;; fixed throughout.
+;; Block $8F ($23C0) is free — reserved for future animation frames.
+* = $2240   ; $89: skull1
+    !bin "assets/sprites/skull1.spr"
+* = $2280   ; $8A: skull2
+    !bin "assets/sprites/skull2.spr"
+* = $22C0   ; $8B: skull3
+    !bin "assets/sprites/skull3.spr"
+* = $2300   ; $8C: skull4
+    !bin "assets/sprites/skull4.spr"
+* = $2340   ; $8D: skull5
+    !bin "assets/sprites/skull5.spr"
+* = $2380   ; $8E: skull6
+    !bin "assets/sprites/skull6.spr"
 
-;; Rock sprite data (asteroid) — block $8C
-* = $2300
+;; Rock sprite data (asteroid) — block $90
+* = $2400
     !bin "assets/sprites/rock.spr"
 
-;; Radar indicator sprite data (crosshair target) — block $8D
-* = $2340
+;; Radar indicator sprite data (crosshair target) — block $91
+* = $2440
     !byte $00,$00,$00
     !byte $00,$10,$00
     !byte $00,$10,$00

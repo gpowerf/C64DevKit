@@ -16,3 +16,6 @@ output/
 *.swo
 *~
 *.d64
+
+# Sprite edit intermediates (tools/sprtool.py)
+games/dodge/sprite_edit/
