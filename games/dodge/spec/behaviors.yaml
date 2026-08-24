@@ -551,6 +551,13 @@ behaviors:
 #   Right→left:    dx∈{−3,−2,−1}, dy∈{−1,0,+1}
 #   Left→right:    dx∈{+3,+2,+1}, dy∈{−1,0,+1}
 #
+# Speed gate (in ast_spawn, after the pick and before the slot commit):
+#   Levels 1–4 clamp both velocity components to |2| px/frame — the
+#   ±3 variants are reserved for level 5+ (the max difficulty tier).
+#   The clamp covers both the random pick and the radar pre-rolled
+#   path; direction signs are untouched, so radar warnings stay
+#   accurate.
+#
 # --- Spawning (ast_spawn, called when ast_timer reaches 0) ---
 #
 # 1. Check level: if level < 2, return (no asteroids).
@@ -731,6 +738,12 @@ behaviors:
 #   4. Write prompt: "press fire to play" → row 14, col 11, colour lt.grey (15)
 #   5. Write credit: "gpowerf 2026" → row 22, col 14, colour lt.grey (15)
 #   6. Text via !scr (lowercase ASCII → PETSCII screen codes)
+#      The ds_title / ds_press / ds_credit strings live at $2900 —
+#      after the sound presets, clear of both the code region (which
+#      is guarded against crossing $2000 into the base sprite data)
+#      and the sprite/sfx data.  They previously sat at the end of the
+#      code region and were silently overwritten by ship_r.spr when the
+#      code grew past $2000 (the title screen showed garbage).
 #
 # Frame loop (do_splash, runs every frame after draw):
 #   1. Disable all sprites ($D015 = 0)

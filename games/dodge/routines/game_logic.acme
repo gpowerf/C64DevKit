@@ -1475,6 +1475,39 @@ ast_spawn:
 .sav:
     sta ast_active
 
+    ;; Speed clamp — levels 1-4 cap both velocity components at
+    ;; |2| px/frame; the ±3 variants stay reserved for level 5+
+    ;; (the max difficulty tier).  Applies to both the random pick
+    ;; and the radar pre-rolled path — direction signs are untouched,
+    ;; so the radar warning stays accurate.
+    lda level
+    cmp #5
+    bcs .no_speed_clamp
+    lda ast_vx
+    cmp #3
+    bne .vx_neg
+    lda #2
+    sta ast_vx
+    jmp .vy_clamp
+.vx_neg:
+    cmp #253              ; -3
+    bne .vy_clamp
+    lda #254              ; -2
+    sta ast_vx
+.vy_clamp:
+    lda ast_vy
+    cmp #3
+    bne .vy_neg
+    lda #2
+    sta ast_vy
+    jmp .no_speed_clamp
+.vy_neg:
+    cmp #253
+    bne .no_speed_clamp
+    lda #254
+    sta ast_vy
+.no_speed_clamp:
+
     ;; Store position + velocity
     lda ast_vx
     sta ast_dx, x
@@ -2570,9 +2603,12 @@ draw_splash:
 .s_done:
     rts
 
-ds_title:  !scr "last star system", 0
-ds_press:  !scr "press fire to play", 0
-ds_credit: !scr "gpowerf 2026", 0
+;; --- Guard: the code region must end before the base sprite data ---
+;; (emitted at $2000 by codegen).  Growing game_logic past $2000
+;; silently corrupts the strings/data below — fail the build instead.
+!if * > $2000 {
+    !error "game_logic overruns $2000 sprite data — free up code space"
+}
 
 ;; --- Sprite animation frames ---
 ;; Ship frame 1 (4 directions) — blocks $85-$88
@@ -2636,3 +2672,12 @@ ds_credit: !scr "gpowerf 2026", 0
     !byte $00,$10,$00
     !byte $00,$00,$00
     !byte $01
+
+;; Splash screen text — lives after the sound presets at $2900, clear
+;; of both the code region (guarded at $2000 above) and sprite data.
+;; (Previously emitted at the end of the code region; it crossed the
+;; $2000 boundary when the code grew and got overwritten by ship_r.spr.)
+* = $2900
+ds_title:  !scr "last star system", 0
+ds_press:  !scr "press fire to play", 0
+ds_credit: !scr "gpowerf 2026", 0
