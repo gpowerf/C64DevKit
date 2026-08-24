@@ -25,6 +25,9 @@ go_drawn:   !byte 0
 speed_ctr:  !byte 0
 last_safe:  !byte 0
 player_dir: !byte 0    ; 0=right 1=left 2=up 3=down
+player_moving: !byte 0 ; set by keyboard_read when position changed this frame
+prev_x: !byte 0        ; sprite 0 X last frame (movement detection)
+prev_y: !byte 0        ; sprite 0 Y last frame (movement detection)
 dmz_seed:   !byte $5A  ; LFSR seed for DMZ noise
 dmz_color:  !byte 6    ; cycling color index (0-7)
 dmz_timer:  !byte 1    ; countdown to next DMZ refresh
@@ -162,8 +165,16 @@ gdone:
 ;; Sprite animation — cycles ship (2 frames) and enemy (7 frames)
 ;; ============================================================
 anim_update:
-    ;; Ship: alternate every 2 frames (25 Hz flicker — the two trail
-    ;; positions blend on the phosphor, reading as translucent exhaust)
+    ;; Ship: trail shows only while flying.  Stationary (or outside
+    ;; PLAYING) → freeze on frame 0, the no-trail pose.
+    lda state
+    cmp #GAME_PLAYING
+    bne .ship_idle
+    lda player_moving
+    beq .ship_idle
+    ;; Ship: moving → alternate every 2 frames (25 Hz flicker — the two
+    ;; trail positions blend on the phosphor, reading as translucent
+    ;; exhaust)
     inc ship_ctr
     lda ship_ctr
     cmp #2
@@ -172,6 +183,11 @@ anim_update:
     sta ship_ctr
     lda ship_frame
     eor #1
+    sta ship_frame
+    jmp .an_enemy
+.ship_idle:
+    lda #0
+    sta ship_ctr
     sta ship_frame
 .an_enemy:
     ;; Enemy: cycle 0-6 every 6 frames (42-frame loop; frame 6 is the
@@ -199,6 +215,13 @@ init_once:
 
 do_init:
     inc init_done
+
+    ;; Movement-detection baseline: set from the current sprite 0
+    ;; position so the first PLAYING frame doesn't register a fake move.
+    lda $d000
+    sta prev_x
+    lda $d001
+    sta prev_y
 
     ;; Seed LFSR from raster line for varied runs
     lda $d012
@@ -785,6 +808,26 @@ kdone:
 .joy_incright:
     inc $d000
 .joy_noright:
+    ;; --- Movement detection: position delta vs previous frame ---
+    ;; Set by actual VIC position change (covers keyboard + joystick,
+    ;; including boundary clamping — no move, no flag).
+    lda #0
+    sta player_moving
+    lda $d000
+    cmp prev_x
+    bne .mv_yes
+    lda $d001
+    cmp prev_y
+    bne .mv_yes
+    jmp .mv_store
+.mv_yes:
+    lda #1
+    sta player_moving
+.mv_store:
+    lda $d000
+    sta prev_x
+    lda $d001
+    sta prev_y
     rts
 
 ;; ============================================================

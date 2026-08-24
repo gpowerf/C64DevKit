@@ -8,30 +8,32 @@ Each `.spr` file = 63 bytes of pixel data + 1 pad byte.
 The existing sprites are your reference for each direction's silhouette.
 Keep the outline and overall shape consistent across frames.
 
-## Ship — Frame 1 (alternate animation)
+## Ship — Frame 1 (trail)
 
 | File | Direction | Block | Pixel buffer |
 |------|-----------|-------|--------------|
-| `ship_r1.spr` | Right | $85 | Exhaust streak shifts, claw pinches |
-| `ship_l1.spr` | Left  | $86 | Independently drawn left variant |
-| `ship_u1.spr` | Up    | $87 | V-flare plume cuts out, glint slides |
-| `ship_d1.spr` | Down  | $88 | Independently drawn down variant |
+| `ship_r.spr` | Right | $80 | Clean hull, no trail (idle pose) |
+| `ship_r1.spr` | Right | $85 | Exhaust trail |
+| `ship_l.spr` | Left  | $81 | Clean hull, no trail (idle pose) |
+| `ship_l1.spr` | Left  | $86 | Exhaust trail |
+| `ship_u.spr` | Up    | $82 | Clean hull, no trail (idle pose) |
+| `ship_u1.spr` | Up    | $87 | Exhaust trail |
+| `ship_d.spr` | Down  | $83 | Clean hull, no trail (idle pose) |
+| `ship_d1.spr` | Down  | $88 | Exhaust trail |
 
-### Animation: 2-frame cycle, alternates every 2 frames (25 Hz — trails read as translucent)
+### Animation: movement-gated 2-frame cycle
 
-### Design direction
+- **Moving** (`state == PLAYING`, sprite position changed this frame):
+  frames alternate every 2 frames (25 Hz flicker at 50 Hz) — the two
+  trail positions blend on the phosphor, reading as translucent
+  exhaust.
+- **Stationary** (no position delta, or outside PLAYING): frozen on
+  frame 0 — the trail is completely hidden.
 
-frame 0 is the "base" pose. frame 1 is the "surge" pose — the engine
-fires for one cycle:
-
-- **Right/Left**: The diagonal exhaust streak along the hull shifts/
-  blinks one cycle step (pixels move along the streak), and the nose
-  claw prongs pinch 1px toward the body.
-- **Up/Down**: The V-shaped engine flare under the hull cuts out (off
-  pulse), and the canopy glint slides one row.
-- The silhouette matches frame 0 within ±1 pixel.
-- l1/d1 are hand-drawn variants matching the base art's left/down
-  orientation — not mechanical mirrors of r1/u1.
+Movement is detected by comparing sprite 0's VIC position against
+`prev_x`/`prev_y` at the end of `keyboard_read` (`player_moving`).
+The gate lives in `anim_update`.  l1/d1 are hand-drawn variants, not
+mechanical mirrors of r1/u1.
 
 ## Enemy (Octopus) — Frames 1-6
 

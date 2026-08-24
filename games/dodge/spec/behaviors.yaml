@@ -73,7 +73,9 @@
 #   trans_level  1 B    0       Level number to display during transition
 #   trans_done   1 B    0       Text drawn flag (one-shot)
 #   ship_ctr     1 B    0       Ship animation counter (every 2 frames)
-#   ship_frame   1 B    0       Ship animation frame (0–1)
+#   ship_frame   1 B    0       Ship animation frame (0=no trail, 1=trail)
+#   player_moving 1 B   0       Set by keyboard_read: 1 if sprite 0 moved
+#   prev_x/prev_y 1 B ea 0      Sprite 0 position last frame (delta detect)
 #   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
 #   enemy_frame  1 B    0       Enemy animation frame (0–6)
 #   pwr_avail    1 B    0       Invincibility charge available (0/1)
@@ -233,22 +235,25 @@ behaviors:
 #          If X=255: increment + set MSB.
 #          Else: increment X.
 #
-# Player directional animation (2-frame cycle, alternates every 2
-# frames via anim_update / ship_ctr — 25 Hz flicker at 50 Hz, fast
-# enough that the two trail positions blend on the phosphor and the
-# exhaust reads as translucent):
+# Player directional animation (2-frame cycle):
 #   Every frame: sprite pointer $07F8 = $80 + player_dir + ship_frame * 5
 #   This selects one of eight 64-byte sprite data blocks:
 #     $80 → $2000 (right, frame 0), $81 → $2040 (left,  frame 0),
 #     $82 → $2080 (up,    frame 0), $83 → $20C0 (down,  frame 0),
 #     $85 → $2140 (right, frame 1), $86 → $2180 (left,  frame 1),
 #     $87 → $21C0 (up,    frame 1), $88 → $2200 (down,  frame 1)
-#   ($84 is the enemy skull frame 0, hence the *5 skip over it.)
-#   Frame 1 art ("surge" pose): the diagonal exhaust streak shifts
-#   one step along the hull (right/left) or the V-shaped engine flare
-#   cuts out (up/down), and the nose claw pinches 1px — the 2-frame
-#   cycle reads as a firing engine.  l1/d1 are hand-drawn variants,
-#   not mechanical mirrors of r1/u1.
+#   ($84 is the enemy octopus frame 0, hence the *5 skip over it.)
+#   Frame 0 art is the no-trail pose; frame 1 carries the exhaust
+#   trail.
+#   Movement gate (anim_update):
+#     Moving (state == PLAYING and player_moving == 1, set by
+#     keyboard_read when the sprite position changed this frame):
+#     alternate every 2 frames (25 Hz flicker — the two trail
+#     positions blend on the phosphor, reading as translucent
+#     exhaust).
+#     Stationary (player_moving == 0) or outside PLAYING: freeze on
+#     frame 0 — the trail is completely hidden.
+#   l1/d1 are hand-drawn variants, not mechanical mirrors of r1/u1.
 #
 # X-position constraint detail:
 #   The DMZ boundary is at X=224 (low byte, MSB=0).

@@ -15,9 +15,10 @@
 #   └────┴──────────┴───────┴─────────────────────────────┘
 #
 # Sprite animations (art in assets/sprites/, 24×21 hi-res):
-#   player — 2 frames per direction, alternating every 2 frames
-#            (25 Hz flicker; the exhaust trails blend into a
-#            translucent shimmer on the phosphor)
+#   player — 2 frames per direction: frame 0 = no trail, frame 1 =
+#            exhaust trail.  While moving, frames alternate every 2
+#            frames (25 Hz flicker → translucent trail); stationary
+#            (or outside PLAYING), frozen on frame 0 — no trail.
 #   enemy  — 7-frame hand-drawn tentacle cycle advancing every 6
 #            frames (file names keep the historical skull* prefix)
 #
