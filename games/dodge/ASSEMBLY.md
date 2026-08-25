@@ -278,9 +278,9 @@ popped PC by 1 automatically.  This is standard 6502 trickery: push
 `(target−1)` for RTS to land on `target`.  **If the preset returns to the wrong
 address, the pushed value needs `−1`**.
 
-**Note**: The dodge game's `chk_sid` uses a cleaner approach — `jmp sfx_ping`
+**Note**: The dodge game's `chk_sid` uses a cleaner approach — `jmp sfx_coin`
 from a `jsr`-called subroutine.  The `jsr chk_sid` already pushed the return
-address; `jmp sfx_ping` forwards it; `sfx_ping`'s `RTS` returns to `cheat_keys`.
+address; `jmp sfx_coin` forwards it; `sfx_coin`'s `RTS` returns to `cheat_keys`.
 No manual stack manipulation needed.
 
 ---
@@ -761,7 +761,7 @@ Three types coexist:
 | Type | Example | Call pattern | Gate-off |
 |------|---------|-------------|----------|
 | Single-shot | `sfx_boop` | `jsr sfx_boop` | `sfx_gate_off` each frame |
-| Multi-frame | `sfx_ping` | `jsr sfx_ping`, then `sfx_tick_all` each frame | Handled internally |
+| Multi-frame | `sfx_coin` | `jsr sfx_coin`, then `sfx_tick_all` each frame | Handled internally |
 | Raw SID | death (old) | Direct `$D400` writes | `sound_tick` |
 
 **Frame loop integration**:

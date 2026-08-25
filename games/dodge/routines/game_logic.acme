@@ -93,6 +93,7 @@ g0a:
     jsr keyboard_read
     jsr cheat_keys
     jsr anim_update
+    jsr engine_do
     ;; Set sprite 0 pointer = $80 + player_dir + ship_frame * 5
     lda player_dir
     clc
@@ -1096,6 +1097,8 @@ c_no:
 ;; Level transition — between levels, show "LEVEL X"
 ;; ============================================================
 do_transition:
+    lda #SID_WAVE_NOISE
+    sta SID_CTRL_2        ; gate off engine — gstart bypassed here
     lda trans_done
     bne .t_wait
     jmp .t_draw
@@ -1264,7 +1267,7 @@ level_update:
     sta speed_frac
     lda level_spawns, x
     sta ast_timer
-    jsr sfx_ping           ; Atari-style ascending two-note zap
+    jsr sfx_coin            ; two-note chime E-5 → A-5
     ;; Enemy colour changes at level 5
     lda level
     cmp #5
@@ -2428,7 +2431,7 @@ level_spawns: !byte 40, 40, 30, 25, 20            ; asteroid spawn interval
 level_scores: !word 0, 1000, 2000, 3000, 4000     ; score per level (cheat)
 
 chk_sid:
-    jmp sfx_ping           ; ascending two-note level-up sound
+    jmp sfx_coin           ; two-note chime E-5 → A-5
 
 ;; -- Rock sprite data (asteroid) --
 ;; ============================================================
@@ -2681,3 +2684,53 @@ draw_splash:
 ds_title:  !scr "last star system", 0
 ds_press:  !scr "press fire to play", 0
 ds_credit: !scr "gpowerf 2026", 0
+
+;; ============================================================
+;; Ship engine (voice 2) — direction-tuned noise rumble
+;; ============================================================
+;; Called every frame from gstart.  Gates on while moving in the
+;; PLAYING state.  Noise waveform at low frequency reads as
+;; "spaceship thrust" white-noise rumble (2600 Asteroids style);
+;; the base frequency comes from engine_freqs[player_dir] and the
+;; framework LFSR (random) churns the low byte every frame so the
+;; exhaust sounds alive instead of static:
+;;   right ~ mid rumble, left ~ deeper rumble,
+;;   up ~ hissier thrust, down ~ deepest churn.
+;; Voice 2 is never touched by sfx_gate_off (voices 1+3 only), so
+;; one-shot presets can't clobber the drone.  do_transition gates it
+;; off explicitly because gstart is bypassed there.
+* = $2940
+engine_do:
+    lda state
+    cmp #GAME_PLAYING
+    bne .off
+    lda player_moving
+    beq .off
+    lda player_dir
+    asl
+    tax
+    lda random              ; frame LFSR — engine churn
+    and #$7F
+    clc
+    adc engine_freqs, x     ; base lo + 0..$7F wiggle
+    sta SID_FREQ_LO_2
+    lda engine_freqs+1, x
+    adc #0                  ; carry into hi
+    sta SID_FREQ_HI_2
+    lda #$08
+    sta SID_ATK_DEC_2       ; attack 0, decay 8
+    lda #$80
+    sta SID_SUST_REL_2      ; sustain 8 (volume), release 0
+    lda #SID_WAVE_NOISE | SID_GATE_ON
+    sta SID_CTRL_2
+    rts
+.off:
+    lda #SID_WAVE_NOISE
+    sta SID_CTRL_2          ; gate off + release 0 = instant silence
+    rts
+
+engine_freqs:
+    !word $2600   ; right — mid rumble
+    !word $2E00   ; left  — deeper rumble
+    !word $1C00   ; up    — hissier thrust
+    !word $4000   ; down  — deepest churn
