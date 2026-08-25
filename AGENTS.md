@@ -18,6 +18,8 @@ Reverse this and you're vibe coding. Don't.
 4. **`c64devk test`** — run assertions (requires VICE headless)
 5. **`c64devk check`** — validate spec consistency before committing
 6. **Commit** the spec changes (and any routine changes they required)
+7. **Log it** — append a `CHANGELOG.md` entry (ID, What, Why, commits;
+   OpenSpec-style history, conventions in the file header)
 
 ### What Goes Where
 

@@ -8,7 +8,7 @@
 #   ├────┼──────────┼───────┼─────────────────────────────┤
 #   │  0 │ player   │   7   │ Ship, 4 directional frames   │
 #   │  1 │ enemy    │   2   │ Octopus, chases player       │
-#   │  2 │ asteroid_0│  7   │ Rock, spawned at level 2+    │
+#   │  2 │ asteroid_0│  7   │ Rock, L2 yellow → L3+ white  │
 #   │  3 │ asteroid_1│  8   │ Rock, spawned at level 4+    │
 #   │  4 │ asteroid_2│ 10   │ Rock, spawned at level 5+    │
 #   │  5 │ radar    │   7   │ Crosshair target indicator   │

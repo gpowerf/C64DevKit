@@ -560,6 +560,13 @@ behaviors:
 #   path; direction signs are untouched, so radar warnings stay
 #   accurate.
 #
+# Level colour (in ast_spawn, slot 0 only — right after the clamp):
+#   Level 2: yellow (7).  Level 3+: white (1).  Slots 1/2 keep their
+#   fixed orange/light-red colours from do_init.  Written at spawn
+#   time so it survives the do_init re-run after each transition
+#   (do_init resets $D029 to yellow; the next spawn re-applies the
+#   level colour).
+#
 # --- Spawning (ast_spawn, called when ast_timer reaches 0) ---
 #
 # 1. Check level: if level < 2, return (no asteroids).
@@ -755,6 +762,11 @@ behaviors:
 # =============================================================================
 # System 14 — Splash Screen (do_splash + draw_splash + splash_bars)
 # =============================================================================
+#
+# The splash block is relocated to the extended RAM area ($2A00) —
+# the $0801-$2000 code region was full; a guard at the end of the main
+# region fails the build if code ever crosses $2000 into the sprite
+# data.  All splash branches are local, so the move is transparent.
 #
 # Runs its OWN frame loop — completely bypasses the main loop's behaviours_update.
 # The splash routine owns frame_ready, advances it internally, and never returns
