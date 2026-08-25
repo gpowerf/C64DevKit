@@ -64,6 +64,7 @@ ship_ctr:  !byte 0     ; ship animation counter (every 8 frames)
 ship_frame: !byte 0    ; ship animation frame (0-1)
 enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
 enemy_frame: !byte 0   ; enemy animation frame (0-3)
+boom_tmr:  !byte 0     ; death-boom countdown (0 = inactive, 60 = just died)
 pwr_avail: !byte 0     ; invincibility charge available (0/1)
 pwr_flash: !byte 0     ; flash cycle counter during invincibility
 pwr_key:   !byte 0     ; fire/shift edge state (0=held, 1=released)
@@ -79,6 +80,7 @@ SCRN = $0400
 gstart:
     jsr sfx_gate_off       ; tick preset sound timers
     jsr sfx_tick_all       ; tick multi-frame presets
+    jsr boom_tick          ; tick the death boom (voice 2+3 sweep)
     jsr init_once
     jsr dmz_do
     lda state
@@ -1080,7 +1082,7 @@ c_check:
     sta enemy_y
     sta $d003
 
-    jsr sfx_explosion      ; noise rumble with decay
+    jsr death_boom         ; layered two-voice explosion + border flash
 
     lda #GAME_DYING
     sta state
@@ -1978,7 +1980,7 @@ ast_collision:
     sta flash_tmr
     sta hit_timer
 
-    jsr sfx_explosion      ; noise rumble with decay
+    jsr death_boom         ; layered two-voice explosion + border flash
     rts
 
 ;; ============================================================
@@ -2546,6 +2548,8 @@ ds_credit: !scr "gpowerf 2026", 0
 ;; off explicitly because gstart is bypassed there.
 * = $2940
 engine_do:
+    lda boom_tmr
+    bne .skip               ; the death boom owns voice 2 — yield
     lda state
     cmp #GAME_PLAYING
     bne .off
@@ -2572,6 +2576,7 @@ engine_do:
 .off:
     lda #SID_WAVE_NOISE
     sta SID_CTRL_2          ; gate off + release 0 = instant silence
+.skip:
     rts
 
 engine_freqs:
@@ -2757,4 +2762,121 @@ draw_splash:
     bne .s_clp
 
 .s_done:
+    rts
+
+;; ============================================================
+;; Death boom — layered explosion, 60 frames
+;; ============================================================
+;; Triggered once by .ac_real_hit / collision_do.  boom_tick (called
+;; from gstart's sound section every frame, so it keeps running
+;; through the DYING state) sweeps both voices and flashes the border:
+;;   voice 3 noise:  hi byte $18 -> $7E — harsh crack descending
+;;                   into a deep rumble (computed from the 60-frame
+;;                   countdown, clamped at $7E), sustain fades out
+;;                   over the last 24 frames
+;;   voice 2 pulse:  hi byte $04 -> $40 — sub thump dropping from
+;;                   ~240 Hz to 60 Hz
+;;   border:         red/white flash at 25 Hz for the first 40
+;;                   frames, then back to normal (11)
+;; Sweeps are plain STA stores — SID registers are write-only, so
+;; INC (read-modify-write) reads bus garbage on real hardware.
+;; Voice 2 is free here: engine_do yields while boom_tmr > 0, and
+;; sfx_gate_off only manages voices 1+3.  When inactive, boom_tick
+;; does nothing at all — it must never gate voice 3 in idle or the
+;; enemy-respawn sfx_explosion would be killed a frame later.
+death_boom:
+    lda #60
+    sta boom_tmr
+    lda #$0F
+    sta SID_VOL_MODE
+    ;; Voice 3: noise, harsh start, loud
+    lda #$00
+    sta SID_FREQ_LO_3
+    lda #$18
+    sta SID_FREQ_HI_3        ; high noise = sharp crack
+    lda #$00
+    sta SID_ATK_DEC_3        ; instant attack
+    lda #$F0
+    sta SID_SUST_REL_3       ; sustain F (loud), release 0
+    lda #SID_WAVE_NOISE | SID_GATE_ON
+    sta SID_CTRL_3
+    ;; Voice 2: pulse sub-drop, starts high (~240 Hz)
+    lda #$00
+    sta SID_PW_LO_2
+    lda #$08
+    sta SID_PW_HI_2
+    lda #$00
+    sta SID_FREQ_LO_2
+    lda #$04
+    sta SID_FREQ_HI_2        ; ~240 Hz thump
+    lda #$00
+    sta SID_ATK_DEC_2
+    lda #$F0
+    sta SID_SUST_REL_2
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_2
+    rts
+
+boom_tick:
+    lda boom_tmr
+    beq .bt_done             ; inactive — never touch the SID
+    dec boom_tmr
+    beq .bt_off              ; just finished this frame
+    ;; Sweeps are computed from the countdown and stored with plain
+    ;; STA — never INC a SID register (read-modify-write on a
+    ;; write-only register returns bus garbage on real hardware).
+    ;; Voice 3 noise hi: $18 + elapsed*2, clamped at $7E
+    lda #60
+    sec
+    sbc boom_tmr
+    asl
+    clc
+    adc #$18
+    cmp #$7E
+    bcc .bt_v3s
+    lda #$7E
+.bt_v3s:
+    sta SID_FREQ_HI_3
+    ;; Voice 2 pulse hi: $05 + elapsed (reaches $40 at the end)
+    lda #60
+    sec
+    sbc boom_tmr
+    clc
+    adc #$05
+    sta SID_FREQ_HI_2
+.bt_tail:
+    ;; Fade the noise sustain over the last 24 frames (0..5)
+    lda boom_tmr
+    cmp #24
+    bcs .bt_flash
+    lsr
+    lsr                     ; /4 -> sustain nibble 0..5
+    sta SID_SUST_REL_3      ; sustain = level, release 0
+.bt_flash:
+    ;; Border flash: red/white at 25 Hz while tmr > 20
+    lda boom_tmr
+    cmp #21
+    bcc .bt_normal
+    and #$02
+    bne .bt_white
+    lda #2
+    bne .bt_set
+.bt_white:
+    lda #1
+.bt_set:
+    sta $d020
+    rts
+.bt_normal:
+    lda #11
+    sta $d020
+.bt_done:
+    rts
+.bt_off:
+    ;; Boom finished: silence both voices, normal border
+    lda #SID_WAVE_NOISE
+    sta SID_CTRL_3
+    lda #SID_WAVE_PULSE
+    sta SID_CTRL_2
+    lda #11
+    sta $d020
     rts

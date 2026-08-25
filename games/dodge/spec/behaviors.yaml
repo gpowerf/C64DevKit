@@ -78,6 +78,7 @@
 #   prev_x/prev_y 1 B ea 0      Sprite 0 position last frame (delta detect)
 #   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
 #   enemy_frame  1 B    0       Enemy animation frame (0–6)
+#   boom_tmr     1 B    0       Death-boom countdown (0=inactive)
 #   pwr_avail    1 B    0       Invincibility charge available (0/1)
 #   pwr_flash    1 B    0       Flash cycle counter during invincibility
 #   pwr_key      1 B    0       Fire/shift edge state (0=held, 1=released)
@@ -394,7 +395,9 @@ behaviors:
 #          If player Y < 140: spawn at Y=210
 #          Else:              spawn at Y=60
 #        (This puts the enemy roughly opposite the player.)
-#     4. Play death sound via sfx_explosion: noise rumble (voice 3, 25 fr).
+#     4. Play death boom via death_boom: layered two-voice explosion
+#        (voice 3 noise sweep + voice 2 pulse sub-drop, 60 frames)
+#        with a red/white border flash — see System 13.
 #     5. Set state = DYING, state_tmr = 150, flash_tmr = 0
 #     6. Return (skip asteroid check — state already changed)
 #
@@ -420,7 +423,8 @@ behaviors:
 #     2. Decrement lives
 #     3. Set state = DYING, state_tmr = 150, flash_tmr = 0
 #     4. Clear hit_timer
-#     5. Play death sound via sfx_explosion (noise rumble, 25 fr).
+#     5. Play death boom via death_boom (60-frame two-voice sweep +
+#        border flash — see System 13).
 #
 # Hit invincibility:
 #   After respawning from DYING: hit_timer = 150 (≈ 3 sec invincibility).
@@ -714,7 +718,21 @@ behaviors:
 # character — no envelope shaping, just hard gating.
 #
 #   Death (collision hit):
-#     sfx_explosion — voice 3 noise rumble with decay, 25 frames.
+#     death_boom — 60-frame layered explosion triggered by both
+#     death paths (collision_do and .ac_real_hit) and ticked
+#     every frame from gstart:
+#       voice 3 noise sweeps $18 → $7E with the sustain fading
+#       over the last 24 frames;
+#       voice 2 pulse sub-drop sweeps $04 → $40;
+#       sweeps are computed from the countdown and stored with
+#       plain STA — never INC a SID register (read-modify-write
+#       reads bus garbage on write-only registers);
+#       border flashes red/white at 25 Hz for the first 40
+#       frames, then returns to normal (11);
+#       end of boom gates both voices off (release 0).
+#     engine_do yields voice 2 while boom_tmr > 0.  boom_tick is
+#     a no-op when inactive — it must never gate voice 3 in idle
+#     or the enemy-respawn sfx_explosion would die a frame later.
 #
 #   Level-up (score threshold and SPACE cheat):
 #     sfx_coin — voice 1, two-note triangle chime E-5 → A-5,
@@ -729,8 +747,8 @@ behaviors:
 #   Radar warning appears:
 #     sfx_boop — voice 1, low blip.
 #
-#   Enemy respawn:
-#     sfx_explosion — voice 3 noise rumble.
+#   Enemy respawn: silent — the 60-frame death_boom covers the
+#   moment (the old bundled sfx_explosion was removed).
 #
 # Ship engine (engine_do, voice 2 — continuous noise rumble):
 #   Called every frame from gstart (after anim_update).  Gates on while

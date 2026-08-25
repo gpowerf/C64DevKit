@@ -28,6 +28,8 @@ def launch_vice(prg_path: Path, headless: bool = False, autostart: bool = True) 
         print("Error: VICE (x64sc) not found", file=sys.stderr)
         return None
 
+    prg_path = Path(prg_path).resolve()  # VICE's cwd is the ROM dir — relative paths would silently fail
+
     rom_dir = (Path.home() / ".c64devk" / "roms")
     if not (rom_dir / "kernal").exists():
         _setup_roms(rom_dir)
@@ -95,6 +97,8 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         print("Error: VICE (x64sc) not found", file=sys.stderr)
         return None
 
+    prg_path = Path(prg_path).resolve()  # VICE's cwd is the ROM dir — relative paths would silently fail
+
     rom_dir = (Path.home() / ".c64devk" / "roms")
     if not (rom_dir / "kernal").exists():
         _setup_roms(rom_dir)
@@ -118,6 +122,8 @@ def launch_debug(prg_path: Path) -> subprocess.Popen | None:
         print("Error: VICE (x64sc) not found", file=sys.stderr)
         return None
 
+    prg_path = Path(prg_path).resolve()
+
     args = [
         vice,
         "-remotemonitor",
@@ -139,6 +145,83 @@ def parse_symbols(path: Path) -> dict[str, int]:
         if m:
             symbols[m.group(1)] = int(m.group(2), 16)
     return symbols
+
+
+# --- Monitor response parsing -------------------------------------------
+# The VICE text monitor pollutes responses with extra material:
+#   - after a breakpoint stop, the first response carries a stop message
+#     ("#1 (Stop on exec ...)") and a disassembly line (".C:xxxx OP ..."),
+#   - dump rows trail an ASCII column that can contain hex-looking
+#     character pairs (e.g. bytes $41 $42 render as "AB").
+# The parsers below are layout-aware so none of that leaks into data.
+
+_DUMP_ADDR_RE = re.compile(r">C:([0-9a-fA-F]{4})")
+_HEX_PAIR_CHARS = "0123456789abcdefABCDEF"
+
+
+def _parse_memory_dump(resp: str, start: int, wanted: int) -> bytes:
+    """Parse VICE monitor memory-dump output into raw bytes.
+
+    Every dump row is labelled with its start address and rows are
+    contiguous, so the real byte count of each row is known exactly
+    (row size = address delta, trimmed at the requested range end).
+    Anything after that count is display noise (breakpoint preambles,
+    disassembly lines, the ASCII column) and is ignored.  Rows of
+    16 or 32 bytes are both handled.
+    """
+    if wanted <= 0:
+        return b""
+    end = start + wanted
+    rows: list[tuple[int, list[str]]] = []
+    for line in resp.split("\n"):
+        for m in _DUMP_ADDR_RE.finditer(line):
+            addr = int(m.group(1), 16)
+            tail = line[m.end():]
+            toks = [t for t in tail.split()
+                    if len(t) == 2 and all(c in _HEX_PAIR_CHARS for c in t)]
+            rows.append((addr, toks))
+    if not rows:
+        return b""
+    row = 16
+    if len(rows) >= 2:
+        row = max(16, rows[1][0] - rows[0][0])
+    out = bytearray()
+    for i, (addr, toks) in enumerate(rows):
+        if i + 1 < len(rows):
+            count = min(rows[i + 1][0] - addr, end - addr)
+        else:
+            count = max(0, end - addr)
+        count = min(count, max(row, len(toks)))
+        for t in toks[:count]:
+            out.append(int(t, 16))
+        if len(out) >= wanted:
+            break
+    return bytes(out[:wanted])
+
+
+_REG_VALUE_RE = re.compile(
+    r"^\.;([0-9a-fA-F]{4})\s+([0-9a-fA-F]{2})\s+([0-9a-fA-F]{2})"
+    r"\s+([0-9a-fA-F]{2})\s+([0-9a-fA-F]{2})")
+_REG_TOKEN_RE = re.compile(r"([A-Za-z]{1,3})=([0-9a-fA-F]+)")
+
+
+def _parse_registers(resp: str) -> dict[str, int]:
+    """Parse VICE monitor `r` output into {REG: value}.
+
+    Current VICE format: value line starts '.;PC AA XX YY SP ...'
+    (PC first, then A, X, Y, SP).  Older formats use 'PC=xxxx A=xx'
+    tokens, handled as a fallback.
+    """
+    for line in resp.split("\n"):
+        m = _REG_VALUE_RE.match(line.strip())
+        if m:
+            pc, a, x, y, sp = (int(g, 16) for g in m.groups())
+            return {"PC": pc, "A": a, "X": x, "Y": y, "SP": sp}
+    vals: dict[str, int] = {}
+    for line in resp.split("\n"):
+        for m in _REG_TOKEN_RE.finditer(line):
+            vals[m.group(1).upper()] = int(m.group(2), 16)
+    return vals
 
 
 class ViceMonitor:
@@ -197,15 +280,7 @@ class ViceMonitor:
 
     def read_memory(self, addr: int, length: int = 1) -> bytes:
         resp = self.send(f"m ${addr:04X}")
-        result = bytearray()
-        for line in resp.split("\n"):
-            parts = line.strip().split()
-            for p in parts:
-                if len(p) == 2 and all(c in "0123456789ABCDEFabcdef" for c in p):
-                    result.append(int(p, 16))
-                    if len(result) >= length:
-                        return bytes(result)
-        return bytes(result)
+        return _parse_memory_dump(resp, addr, length)
 
     def write_memory(self, addr: int, value: int) -> None:
         self.send(f"> ${addr:04X} ${value:02X}")
@@ -231,12 +306,7 @@ class ViceMonitor:
 
     def get_register(self, reg: str) -> int:
         resp = self.send("r")
-        for line in resp.split("\n"):
-            if "PC" in line:
-                for part in line.split():
-                    if part.startswith(reg.upper() + "="):
-                        return int(part.split("=")[1].strip(";"), 16)
-        return 0
+        return _parse_registers(resp).get(reg.upper(), 0)
 
     def set_breakpoint(self, addr: int) -> None:
         self.send(f"break ${addr:04X}")

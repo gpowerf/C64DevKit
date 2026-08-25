@@ -17,6 +17,45 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-25 · death boom: layered explosion + border flash
+
+- **What:** Player death now plays a 60-frame layered boom
+  (`death_boom`/`boom_tick` in the extended RAM area) instead of the
+  small single-voice `sfx_explosion`: voice 3 noise sweeps $18 → $7E
+  with a sustain fade over the last 24 frames, voice 2 pulse
+  sub-drops $04 → $40 (~240 Hz → 60 Hz), and the border flashes
+  red/white at 25 Hz for the first 40 frames.  Both death paths
+  trigger it (enemy collision and asteroid hit — the second handler
+  was still playing the old sound).  `engine_do` yields voice 2
+  while `boom_tmr > 0`; `boom_tick` is a no-op when inactive so it
+  never clobbers voice-3 presets.  Sweeps are computed from the
+  countdown and stored with plain STA — never INC a SID register
+  (read-modify-write on write-only registers reads bus garbage on
+  real hardware; VICE exposed the bug while testing).
+- **Why:** The death explosion was a brief single-voice rumble with
+  no impact; the game's biggest failure moment deserved the biggest
+  sound.
+- **Commits:** *(landed together — see git log)*
+
+## 2026-08-25 · vice_bridge: robust monitor response parsing
+
+- **What:** `vice_bridge` parses VICE monitor output layout-aware:
+  memory dumps use per-row address arithmetic (breakpoint-stop
+  preambles, disassembly lines and ASCII columns can no longer leak
+  into reads); `get_register` understands the current
+  `.;PC AA XX YY SP` register format with a legacy token fallback;
+  all launchers resolve the PRG path to absolute (VICE's cwd is the
+  ROM dir).  Parsers extracted to module-level functions with a
+  pytest suite (`tests/test_vice_bridge.py`, real captured
+  responses).
+- **Why:** The first memory read after a breakpoint stop returned
+  garbage (the `AD` opcode parsed out of the disassembly line) — it
+  cost an hour of phantom bug-hunting; register reads always
+  returned 0; relative PRG paths failed autostart silently.  These
+  were the concrete blockers making `c64devk test` live mode
+  unusable.
+- **Commits:** *(landed together — see git log)*
+
 ## 2026-08-25 · level-3 asteroid colour
 
 - **What:** Slot-0 rocks are level-coloured at spawn time: level 2
