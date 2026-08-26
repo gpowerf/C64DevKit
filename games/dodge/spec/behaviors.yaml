@@ -238,13 +238,13 @@ behaviors:
 #          Else: increment X.
 #
 # Player directional animation (2-frame cycle):
-#   Every frame: sprite pointer $07F8 = $80 + player_dir + ship_frame * 5
+#   Every frame: sprite pointer $07F8 = $D0 + player_dir + ship_frame * 5
 #   This selects one of eight 64-byte sprite data blocks:
-#     $80 → $2000 (right, frame 0), $81 → $2040 (left,  frame 0),
-#     $82 → $2080 (up,    frame 0), $83 → $20C0 (down,  frame 0),
-#     $85 → $2140 (right, frame 1), $86 → $2180 (left,  frame 1),
-#     $87 → $21C0 (up,    frame 1), $88 → $2200 (down,  frame 1)
-#   ($84 is the enemy octopus frame 0, hence the *5 skip over it.)
+#     $D0 → $3400 (right, frame 0), $D1 → $3440 (left,  frame 0),
+#     $D2 → $3480 (up,    frame 0), $D3 → $34C0 (down,  frame 0),
+#     $D5 → $3540 (right, frame 1), $D6 → $3580 (left,  frame 1),
+#     $D7 → $35C0 (up,    frame 1), $D8 → $3600 (down,  frame 1)
+#   ($D4 is the enemy octopus frame 1, hence the *5 skip over it.)
 #   Frame 0 art is the no-trail pose; frame 1 carries the exhaust
 #   trail.
 #   Movement gate (anim_update):
@@ -350,10 +350,10 @@ behaviors:
 #
 # Enemy animation — octopus, hand-drawn cycle (7 frames, advances
 # every 6 frames via anim_update / enemy_ctr — 42-frame loop at 50 Hz):
-#   Every frame: sprite pointer $07F9 = $84 + enemy_frame (+4 skip
+#   Every frame: sprite pointer $07F9 = $D4 + enemy_frame (+4 skip
 #   when enemy_frame > 0, jumping over the four ship frame-1 blocks):
-#     $84 → $2100 (skull,  frame 0 — rest pose),
-#     $89 → $2240 (skull1, frame 1) … $8F → $23C0 (skull7, frame 7)
+#     $D4 → $3500 (skull,  frame 0 — rest pose),
+#     $D9 → $3640 (skull1, frame 1) … $DF → $37C0 (skull7, frame 7)
 #   Frame 0 is the hand-drawn rest pose.  Frames 1-7 are a traveling
 #   wave: each tentacle's pixel runs displace horizontally with the
 #   wave's amplitude ramping from the web anchor to the tip and its

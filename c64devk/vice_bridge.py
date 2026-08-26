@@ -380,8 +380,20 @@ class ViceMonitor:
         return data.decode("utf-8", errors="replace").strip()
 
     def read_memory(self, addr: int, length: int = 1) -> bytes:
-        resp = self.send(f"m ${addr:04X}")
-        return _parse_memory_dump(resp, addr, length)
+        """Read `length` bytes via the monitor's memory dump.
+
+        VICE dumps a fixed window per `m` command, so large reads are
+        chunked; each dump is parsed with address arithmetic (immune to
+        breakpoint preambles and ASCII columns)."""
+        result = bytearray()
+        while len(result) < length:
+            chunk_addr = addr + len(result)
+            resp = self.send(f"m ${chunk_addr:04X}")
+            chunk = _parse_memory_dump(resp, chunk_addr, length - len(result))
+            if not chunk:
+                break               # no progress — avoid spinning forever
+            result.extend(chunk)
+        return bytes(result[:length])
 
     def write_memory(self, addr: int, value: int) -> None:
         self.send(f"> ${addr:04X} ${value:02X}")

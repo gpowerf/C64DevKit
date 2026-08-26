@@ -22,25 +22,26 @@
 #   enemy  — 8-frame fluid tentacle cycle (traveling wave) advancing
 #            every 6 frames (file names keep the historical skull* prefix)
 #
-# Memory layout (all sprites at `sprite_data` = $2000):
-#   $2000  ship_r.spr   (player, right, frame 0)  ptr $80 → $07F8
-#   $2040  ship_l.spr   (player, left,  frame 0)  ptr $81 → $07F8
-#   $2080  ship_u.spr   (player, up,    frame 0)  ptr $82 → $07F8
-#   $20C0  ship_d.spr   (player, down,  frame 0)  ptr $83 → $07F8
-#   $2100  skull.spr    (enemy, frame 0)          ptr $84 → $07F9
-#   $2140  ship_r1.spr  (player, right, frame 1)  ptr $85 → $07F8
-#   $2180  ship_l1.spr  (player, left,  frame 1)  ptr $86 → $07F8
-#   $21C0  ship_u1.spr  (player, up,    frame 1)  ptr $87 → $07F8
-#   $2200  ship_d1.spr  (player, down,  frame 1)  ptr $88 → $07F8
-#   $2240  skull1.spr   (enemy, frame 1)          ptr $89 → $07F9
-#   $2280  skull2.spr   (enemy, frame 2)          ptr $8A → $07F9
-#   $22C0  skull3.spr   (enemy, frame 3)          ptr $8B → $07F9
-#   $2300  skull4.spr   (enemy, frame 4)          ptr $8C → $07F9
-#   $2340  skull5.spr   (enemy, frame 5)          ptr $8D → $07F9
-#   $2380  skull6.spr   (enemy, frame 6)          ptr $8E → $07F9
-#   $23C0  skull7.spr   (enemy, frame 7)          ptr $8F → $07F9
-#   $2400  rock.spr     (asteroids)               ptr $90 → $07FA–$07FC
-#   $2440  inline data  (radar crosshair)         ptr $91 → $07FD
+# Memory layout — sprites at `sprite_data` = $3400, charset at $2000:
+#   $3400  ship_r.spr   (player, right, frame 0)  ptr $D0 → $07F8
+#   $3440  ship_l.spr   (player, left,  frame 0)  ptr $D1 → $07F8
+#   $3480  ship_u.spr   (player, up,    frame 0)  ptr $D2 → $07F8
+#   $34C0  ship_d.spr   (player, down,  frame 0)  ptr $D3 → $07F8
+#   $3500  skull.spr    (enemy, frame 0)          ptr $D4 → $07F9
+#   $3540  ship_r1.spr  (player, right, frame 1)  ptr $D5 → $07F8
+#   $3580  ship_l1.spr  (player, left,  frame 1)  ptr $D6 → $07F8
+#   $35C0  ship_u1.spr  (player, up,    frame 1)  ptr $D7 → $07F8
+#   $3600  ship_d1.spr  (player, down,  frame 1)  ptr $D8 → $07F8
+#   $3640  skull1.spr   (enemy, frame 1)          ptr $D9 → $07F9
+#   $3680  skull2.spr   (enemy, frame 2)          ptr $DA → $07F9
+#   $36C0  skull3.spr   (enemy, frame 3)          ptr $DB → $07F9
+#   $3700  skull4.spr   (enemy, frame 4)          ptr $DC → $07F9
+#   $3740  skull5.spr   (enemy, frame 5)          ptr $DD → $07F9
+#   $3780  skull6.spr   (enemy, frame 6)          ptr $DE → $07F9
+#   $37C0  skull7.spr   (enemy, frame 7)          ptr $DF → $07F9
+#   $3800  rock.spr     (asteroids)               ptr $E0 → $07FA–$07FC
+#   $3840  inline data  (radar crosshair)         ptr $E1 → $07FD
+# (The charset lives at $2000–$27FF — see c64devk.yaml.)
 #
 # The framework uses `data_files` to allocate 4 sprite-pointer slots
 # for the player (frame 0).  The pointer is updated every frame by

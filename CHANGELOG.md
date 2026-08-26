@@ -17,6 +17,34 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-25 · chrome block-logo splash title + charset relocation
+
+- **What:** The splash title "LAST STAR SYSTEM" is now drawn in chrome
+  block letters (2 cols x 3 rows of custom 8x8 glyphs per letter,
+  16x24 px, rows 8-10, cols 4-35) with a white/yellow/orange gradient
+  via colour RAM — styled after the marketing cover.  Generator at
+  `games/dodge/tools/title_font.py` (DejaVu Serif Bold → 48 glyphs →
+  `assets/title_font.bin`).  The splash shimmer bars narrowed from
+  cols 0-5/34-39 to 0-3/36-39 so they no longer clobber the title's
+  edge colours.
+- **Why:** The plain text title didn't match the game's own marketing
+  cover; the cover's chrome treatment needed custom glyphs.
+- **Under the hood — memory relocation (root of two bugs):** the
+  charset moved from $3800 (never read by the VIC — all text came from
+  the char ROM through the VIC view) to $2000, and all sprite data
+  (20KB region) moved from $2000 to $3400 with new pointer constants
+  ($D0/$D4/$E0/$E1).  Key truth: the VIC charset base = LOW NIBBLE of
+  $D018 × $400 within the bank, so $2000 is addressable (low nibble 8).
+  Config precedence trap: the codegen reads the charset from
+  `c64devk.yaml`'s `screen:` section (spec.screen.charset_addr), NOT
+  `memory.charset`; `spec/game.yaml`'s screen block is dead config.
+  Two fixes rode along: the ship pointer `adc #$80` → `#$D0`
+  (invisible ship), and the charset copy now targets $2000 so the rock
+  at $3800 is no longer overwritten at boot (garbage asteroids).
+- **What else:** `vice_bridge.read_memory` now chunks large dumps
+  (VICE's `m` command prints a fixed window per call).
+- **Commits:** *(landed together — see git log)*
+
 ## 2026-08-25 · level-5 softening + survival reward
 
 - **What:** The level-5 asteroid spawn interval softens from 20 to 24

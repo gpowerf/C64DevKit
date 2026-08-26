@@ -1,131 +1,120 @@
-# Session State — C64DevKit
+# Session State — dodge (chrome splash title work, IN PROGRESS)
 
-## What we built
+Handoff for the next model. Repo: `~/Coding/C64DevKit` (branch `dmz-backup`),
+game at `games/dodge`. Read AGENTS.md first — spec-driven workflow
+(spec/*.yaml is the source of truth; routines/ changes MUST be documented
+in spec/behaviors.yaml; CHANGELOG.md gets an entry per change).
 
-**C64DevKit** — spec-driven Commodore 64 development framework. YAML specs compile to 6502 assembly via ACME, producing runnable `.prg` files for VICE.
+## Current task (uncommitted, chrome splash title — WORKING, verify + commit)
 
-**Repo**: `https://github.com/gpowerf/C64DevKit` (main branch, 40+ commits)
+Chrome block-logo title for the splash screen ("LAST STAR SYSTEM" styled
+after the marketing cover) — implemented and VERIFIED WORKING after two
+bugs were fixed this session:
 
-## Framework commands
+### RESOLVED BUGS (both were fallout from the charset/sprite memory move)
+1. INVISIBLE SHIP: ship pointer `adc #$80` stayed stale → ship pointed at
+   the charset ($2000). Fixed to `adc #$D0`. (My earlier pass targeted
+   `#$B0` from the docs' block numbering — the code actually said `#$80`.)
+2. GARBAGE ASTEROIDS: the framework's ROM-charset copy still went to
+   $3800 (the rock block!) and overwrote rock.spr at boot with ROM glyph
+   data. ROOT CAUSE: config precedence — the codegen reads the charset
+   from `c64devk.yaml`'s `screen:` section (`spec.screen.charset_addr`),
+   NOT `memory.charset`; `spec/game.yaml`'s screen block is DEAD config
+   (from_dir only loads sprites/behaviors from spec/). Fixed by adding
+   `screen.charset: 0x2000` (+ screen_ram) to `c64devk.yaml`.
 
-```
-c64devk setup      Install all dependencies (ACME, VICE ROMs, PATH)
-c64devk doctor     Check toolchain
-c64devk new <name> Scaffold a new C64 project from templates
-c64devk build      Parse YAML → generate .asm → compile via ACME → .prg + .sym + .lbl
-c64devk run        Build + launch in VICE
-c64devk test       Build + 6 static verification checks + optional live VICE testing
-c64devk clean      Remove output/ directory
-```
+### VERIFIED (live VICE)
+- rock at $3800 byte-matches rock.spr; asteroid ptrs $E0/$E0/$E0;
+  ship ptr $D0, skull $D4, rock $E0, radar $E1.
+- Ship, octopus (8-frame fluid cycle), asteroid rock, radar crosshair,
+  HUD, zones, DMZ, and the chrome splash title all render correctly.
+- Chromed title: glyphs at $2580+ (charset $B0-$DF), codes/colours
+  byte-verified in RAM.
 
-Entry point: `bin/c64devk` (Python). Package: `c64devk/` (cli, codegen, spec_parser, vice_bridge, test_runner, config, templates).
+### The charset/$D018 truth (learned the hard way)
+- VIC charset address = **LOW NIBBLE of $D018 × $400** within the bank
+  (bits 3-1 theory is WRONG — proven by the title rendering from $3D80
+  with $D018=$1E). $D018=$18 → charset at $2000 ✓.
+- Bank 0 is fully usable for charset at $0000-$3C00 (16 blocks × $400).
+- The framework's ROM charset copy (codegen) targets
+  `spec.screen.charset_addr` → `c64devk.yaml` `screen:.charset`.
 
-## Behavior DSL — 7 action types (all compile to 6502 assembly)
+### Memory layout (current)
+| What | Address | Pointer |
+|------|---------|---------|
+| charset (ROM copy + custom glyphs) | $2000-$27FF | — |
+| game code | $0801-$1F1B | — |
+| extended code (strings/engine/splash/boom/title data) | $2900-$3020ish | — |
+| sfx presets | ~$3020-$3145 | — |
+| base sprites (codegen) | $3400-$353F | $D0-$D4 |
+| ship frame 1 | $3540-$3600 | $D5-$D8 |
+| skull frames 1-7 | $3640-$37C0 | $D9-$DF |
+| rock | $3800 | $E0 |
+| radar | $3840 | $E1 |
 
-| Action | YAML example | What it does |
-|--------|-------------|-------------|
-| `update_sprite` | `update_sprite: player` | WASD/joystick → sprite position |
-| `set_sprite_pos` | `set_sprite_pos: {sprite: player, x: 160, y: 120}` | Absolute sprite positioning with $D010 MSB |
-| `inc_score` | `inc_score: 10` | 16-bit score variable (positive or negative, floor 0) |
-| `play_sound` | `play_sound: {voice: 1, note: "c-4", waveform: triangle, duration: 10, adsr: pluck}` | SID note with ADSR + duration tracking |
-| `check_collision` | `check_collision: {sprites: [player, enemy]}` | Hardware $D01E collision check with handler dispatch |
-| `display_text` | `display_text: {text: "score:", row: 0, col: 0, color: 1}` | Write text to screen RAM, auto-copies ROM charset. **Must use lowercase** (!scr only converts a-z) |
-| `display_number` | `display_number: {variable: score, row: 0, col: 6, digits: 5, color: 1}` | Live decimal display of 8/16-bit variable, updates each frame |
+### Chrome title implementation details (all in games/dodge)
+- `tools/title_font.py` — generator: LASTRYEM letters (DejaVu Serif Bold
+  @ 64 downscaled to 16x24), 48 glyphs → `assets/title_font.bin`,
+  preview at `sprite_edit/title_preview.png`.
+- draw_splash: copies glyphs to $2580-$26FF (3 loops 128/128/128),
+  draws 2x3 grid (16 letters × 2 cols × 3 rows) at $0544/$056C/$0594 with
+  colours $D944/$D96C/$D994 (white/yellow/orange). title_text indices
+  1-8 (0 = space). ds_title string removed.
+- splash_bars narrowed cols 0-3 / 36-39 (was clobbering the title's edge
+  colour every frame).
 
-Behavior types: `on_frame` (every frame), `on_collision` (sprite overlap triggers handler with all actions).
+### Uncommitted working-tree files (all part of this feature)
+- games/dodge/c64devk.yaml (screen.charset 0x2000, screen_ram 0x0400,
+  memory.sprite_data 0x3400)
+- games/dodge/spec/game.yaml (same charset — kept in sync although dead)
+- games/dodge/routines/game_logic.acme (title draw, pointer fixes,
+  sprite origins $3540+, narrowed splash bars)
+- games/dodge/spec/sprites.yaml, spec/behaviors.yaml (block map $D0-$E1)
+- games/dodge/tools/title_font.py (new), assets/title_font.bin (new)
+- c64devk/vice_bridge.py (read_memory chunking for big dumps)
+NEXT: do a full player-style pass (c64devk run), then commit everything
+with a CHANGELOG entry (memory layout + chrome title + fixes).
 
-## Macro library (ACME)
+## VICE testing environment quirks (hard-learned, save you hours)
 
-`macros/c64devk.acme` — master include, pulls in `vic.acme`, `cia.acme`, `sid.acme`, `memory.acme`.
+- MONITOR PORT 6510 IS SINGLE-INSTANCE. Failed test asserts skip
+  kill_vice → leaked VICE instances hold the port → later runs connect to
+  the STALE instance (different build! wrong variable addresses!) = chaos.
+  ALWAYS: `pgrep -c x64sc` first, `kill -9` strays, wrap tests in try/finally
+  with kill_vice.
+- Autostart/keybuf `sys2061` flakes: sometimes the PRG loads but never
+  runs (screen shows the BASIC banner). Robust start: connect, check
+  state (PRG initial value = GAME_SPLASH=3, present even before running);
+  if not running, `mon.send("g $0810")` to jump to init. Retry the launch
+  up to 3× if the PRG didn't load (state reads 0, $0801 not the stub).
+- The floating joystick ($DC00 on port 2 with no joystick) randomly
+  presses FIRE/moves — the splash exits itself, the ship drifts, deaths
+  happen. For clean captures: repeatedly poke `$DC00 = $FF`
+  (hold-all-released) in a thread, or accept randomness.
+- Any monitor command (peek/r/send) PAUSES the CPU. To capture a rendered
+  frame: resume (`send "g"`), sleep ~1.5-2s for the game to draw, THEN
+  capture (`capture_vice_window(path, proc.pid)` — Xlib, no pause). Capturing
+  while paused freezes the frame mid-draw (that was the "LASI SIAK" ghost).
+- vice_bridge read_memory is now preamble-immune and chunks large reads;
+  get_register parses the current `.;PC AA XX YY SP` format (+ legacy
+  tokens); launchers resolve PRG paths absolute. Any first-read-after-a-
+  breakpoint-stop crash shows as garbage bytes — the fixed parser handles it.
+- Animation/sound state tests: breakpoint at a label (e.g. `anim_update`,
+  `boom_tick`), `g` to park, poke, resume — the proven per-frame technique.
+- The `.lbl` file does NOT contain local labels (only top-level + vars) —
+  single-stepping from a parked `PC` with `z` works for inner labels, or
+  compute the address from the sym + instruction offsets.
 
-Key macros: `+c64_wait_frame`, `+c64_sprite_enable_all`, `+c64_joy_check`, `+c64_play_note`, `+c64_adsr`, `+c64_gate_on`/`off`, `+c64_sid_tick`, `+c64_sid_volume`, `+c64_sound_tick_all`, `+c64_clear_screen`, `+c64_set_border`, `+c64_set_background`, `+c64_wait_raster`.
+## Game mechanics state (all committed & working before the title work)
 
-SID note frequency table: 72 notes (C-2 to B-7), PAL C64 clock. In macro `+c64_note_table_data`.
-
-## Test runner
-
-6 static verification checks per build: symbols present, PRG structure, sprite data address, sprite init presence, behavior handler presence, spec validation (memory bounds, sprite ranges, name references).
-
-Live VICE testing: each test case launches a fresh VICE instance to avoid inter-test state corruption. VICE monitor uses "g" (go) to continue, "delete N" to remove breakpoints. Socket drain handled with proper prompt draining. Requires xvfb for headless operation.
-
-## VICE launcher
-
-Mode 1 (inject to RAM) + `-keybuf "sys<addr>\r"` — computes init address from BASIC SYS header, injects PRG, auto-types SYS command. ROM symlinks auto-created in `~/.c64devk/roms/`.
-
-## Sprite Dodge game (`games/dodge/`)
-
-Complete game with keyboard controls, enemy AI, scoring zones, lives, game over, restart.
-
-**Controls**: WASD to move, SPACE to restart at game over.
-
-**3 zones** (color RAM on solid block characters):
-- Green (cols 0-12): score zone — +2/tick
-- Black (cols 13-27): neutral — 0/tick
-- Blue (cols 28-39): safe — -5 on entry, 0 while inside. Enemy can't follow past X=255.
-
-**HUD**: `display_text` + `display_number` actions from behaviors.yaml — "score:" + 5-digit score + "lives:" + 1-digit lives, white on row 0.
-
-**Game logic** (`routines/game_logic.acme`, ~600 lines): keyboard input (WASD, 9-bit X with $D010), enemy AI (chase, clamped 24-255), collision (opposite-side respawn, 150-frame invincibility, state machine PLAYING/DYING/GAME_OVER), sound (death saw), zone scoring, game over screen + restart.
-
-**Sprites**: Player uses 4 directional spaceship sprites — `ship_r.spr` (right/$80), `ship_l.spr` (left/$81), `ship_u.spr` (up/$82), `ship_d.spr` (down/$83). Enemy uses `skull.spr` ($84). `player_dir` variable tracks direction (0-3), and the sprite pointer $07F8 is updated each frame.
-
-**Sprites spec**: Extended `SpriteDef` with `data_files: dict` for multi-sprite support. The `codegen.py` `_emit_sprite_data` emits 4 blocks for sprites with `data_files`, and `_emit_sprite_memory_setup` calculates correct 64-byte-block pointers accounting for multi-block sprites.
-
-**Screen**: VIC bank 0, ROM charset copied to $3800 by framework codegen. Solid block chars ($A0) fill screen for color RAM visibility. Dark gray border ($D020=11).
-
-**Design doc**: `DESIGN.md` — single source of truth for all game mechanics.
-
-## Known bugs & quirks
-
-- **VICE kill crash** (fixed): `process.kill()` with `start_new_session=True` only killed parent process, leaving orphaned GTK/X11 children. Fixed with `os.killpg()` (SIGTERM → SIGKILL).
-- **VICE remote monitor** (fixed): "c" command doesn't work — use "g" (go). `delete 1-99` is invalid — use individual `delete N`. Prompt `(C:$XXXX) ` lacks trailing newline — drains after each read.
-- **Enemy safe zone entry** (fixed): Changed enemy max X clamp from 255 to 200.
-- **Keyboard matrix**: WASD hard-coded in game_logic.acme. A=col1/row2 ($04), D=col2/row2 ($04), W=col1/row1 ($02), S=col1/row5 ($20). Same matrix in SKILL.md code patterns.
-- **!scr lowercase**: ACME's `!scr` only converts a-z to PETSCII screen codes. Uppercase A-Z passes through as ASCII → graphics characters. Always use lowercase in YAML `display_text`.
-- **Inline data**: Routines files must start with `jmp .start` to skip over variable declarations. `$00` byte executes as BRK → crash to BASIC READY.
-- **Branch range**: ACME branches limited to ±127 bytes. Use `jmp` for longer jumps.
-- **Zero-page addressing**: `sta ($zp),y` requires zp in $00-$FF. Use explicit $02-$03 instead of labels outside ZP.
-- **VICE headless**: GTK3 VICE exits immediately without display. Live testing needs xvfb. `-autostartprgmode 1` + `-keybuf` works for GUI launch.
-- **Sprite MSB**: $D010 bit can linger from uninitialized state. Always clear when setting enemy X < 256.
-- **Codegen charset copy**: Uses `.ccloop:` label (was broken with `bne *-16`). Copy happens during `init:` with interrupts disabled, $01=$33.
-
-## Architecture notes
-
-**Two codegen paths** (selected by `_has_behaviors()`):
-- **Behavior path**: behaviors.yaml has non-empty actions → `behaviors_update` subroutine + `sound_tick` + no-op `update_sprites`. Variables at $0C00 with conditional allocation (score, num_tmp, num_scr, sound_dur).
-- **Hardcoded path**: empty behaviors → `jsr read_joystick` + `jsr game_logic` + `jsr update_sprites` (sprite 0 only).
-
-**Variable layout** ($0C00+):
-```
-$0C00: frame_ready
-$0C01: joystick_state
-$0C02: joystick_prev
-$0C03: score (2 bytes, if inc_score used)
-       sound_dur_1/2/3 (if play_sound used)
-       num_tmp (2) + num_scr (if display_number used)
-```
-
-## Files to know about
-
-- `skills/SKILL.md` — 1,500+ line LLM reference (spec language, macro ref, C64 hardware, 6502 ISA, 8 code pattern recipes, spec writing tutorial)
-- `docs/ARCHITECTURE.md` — Framework architecture, data flow, extension points
-- `README.md` — Human-facing overview with quick start
-- `DESIGN.md` — Game design doc for Sprite Dodge
-- `bin/install-skill` — Links SKILL.md to `~/.config/opencode/skills/c64devk/`
-
-## What's not done
-
-- Live VICE testing (needs xvfb)
-- Image-based regression testing
-- ACME error → YAML spec mapping (line numbers from assembler errors to YAML keys)
-- Background color actions (beyond border color)
-- Music/sequence patterns for SID
-- More game examples (pure-spec demo, sound jukebox)
-- `c64devk init` (initialize existing directory as project)
-- Sprite data generator (generate .spr from shape descriptions)
-
-## How to continue
-
-Run `c64devk run --project games/dodge` to play the game. Edit `spec/behaviors.yaml` to change HUD or add behaviors. Edit `routines/game_logic.acme` for custom game logic. Run `c64devk build && c64devk run` to iterate.
-
-Framework code: `c64devk/cli.py` (commands), `c64devk/codegen.py` (assembly generation), `c64devk/spec_parser.py` (YAML parsing + note-to-frequency), `macros/` (ACME macro library).
+- Binary level thresholds: 256 / 512 / 1024 / +512 per level after.
+- L5 ceiling: spawn interval 24 (softened), 3 concurrent asteroids, ±3
+  px/frame speeds, octopus 35 px/s pulsing red, +1 life per level-up at
+  L5+ (cap 9). Lives never refilled before this.
+- Sounds: SID v2 engine noise rumble (direction-tuned + LFSR churn),
+  death_boom (v3 noise sweep + v2 sub-drop, 60f, border flash),
+  sfx_coin level-up chime (terminates now), enemy respawn silent.
+- Enemies named `skull*` files but are an OCTOPUS. 8-frame fluid tentacle
+  cycle (octopus_wave.py generated, skull1-7.spr at $89-$8F blocks).
+- CHANGELOG.md: full OpenSpec-style history (check it for prior entries;
+  add one per committed change).

@@ -64,6 +64,8 @@ ship_frame: !byte 0    ; ship animation frame (0-1)
 enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
 enemy_frame: !byte 0   ; enemy animation frame (0-3)
 boom_tmr:  !byte 0     ; death-boom countdown (0 = inactive, 60 = just died)
+tl_base:   !byte 0     ; title logo: first glyph code of current letter
+tl_tmp:    !byte 0     ; title logo scratch (6*letter_index)
 pwr_avail: !byte 0     ; invincibility charge available (0/1)
 pwr_flash: !byte 0     ; flash cycle counter during invincibility
 pwr_key:   !byte 0     ; fire/shift edge state (0=held, 1=released)
@@ -95,10 +97,10 @@ g0a:
     jsr cheat_keys
     jsr anim_update
     jsr engine_do
-    ;; Set sprite 0 pointer = $80 + player_dir + ship_frame * 5
+    ;; Set sprite 0 pointer = $D0 + player_dir + ship_frame * 5
     lda player_dir
     clc
-    adc #$80
+    adc #$D0
     ldx ship_frame
     beq .sp_set
     clc
@@ -113,7 +115,7 @@ g0a:
     adc #4
 .en_base:
     clc
-    adc #$84
+    adc #$D4
     sta $07F9
     ;; Powerup charge HUD indicator (row 0, col 28)
     lda pwr_avail
@@ -301,8 +303,8 @@ clr_col:
     and #$FD
     sta $d010
     jsr dmz_init
-    ;; Init asteroid sprites (2-4) — all point to rock at $2400 (block $90)
-    lda #$90
+    ;; Init asteroid sprites (2-4) — all point to rock at $3800 (block $E0)
+    lda #$E0
     sta $07FA
     sta $07FB
     sta $07FC
@@ -322,7 +324,7 @@ clr_col:
     sta $d007
     sta $d009
     ;; Init radar sprite 5 — pointer and color
-    lda #$91
+    lda #$E1
     sta $07FD
     lda #7              ; yellow
     sta $d02c
@@ -2492,13 +2494,13 @@ chk_sid:
 ;; flare cuts out (up/down), and the nose claw pinches 1px toward the
 ;; body.  l1/d1 are hand-drawn variants matching the base art's
 ;; left/down orientation — not mechanical mirrors of r1/u1.
-* = $2140   ; $85: ship_r1
+* = $3540   ; $85: ship_r1
     !bin "assets/sprites/ship_r1.spr"
-* = $2180   ; $86: ship_l1
+* = $3580   ; $86: ship_l1
     !bin "assets/sprites/ship_l1.spr"
-* = $21C0   ; $87: ship_u1
+* = $35C0   ; $87: ship_u1
     !bin "assets/sprites/ship_u1.spr"
-* = $2200   ; $88: ship_d1
+* = $3600   ; $88: ship_d1
     !bin "assets/sprites/ship_d1.spr"
 ;; Enemy frames 1-7 — blocks $89-$8F (8-frame cycle with frame 0)
 ;; Fluid tentacle swim: frame 0 is the hand-drawn rest pose; frames
@@ -2508,27 +2510,27 @@ chk_sid:
 ;; tentacles.  Diagonal gaps between rows are bridged so the arms
 ;; never tear; the side sweeps paddle in anti-phase; mantle, eyes and
 ;; web stay fixed.  Frame 8 wraps to the rest pose seamlessly.
-* = $2240   ; $89: skull1
+* = $3640   ; $89: skull1
     !bin "assets/sprites/skull1.spr"
-* = $2280   ; $8A: skull2
+* = $3680   ; $8A: skull2
     !bin "assets/sprites/skull2.spr"
-* = $22C0   ; $8B: skull3
+* = $36C0   ; $8B: skull3
     !bin "assets/sprites/skull3.spr"
-* = $2300   ; $8C: skull4
+* = $3700   ; $8C: skull4
     !bin "assets/sprites/skull4.spr"
-* = $2340   ; $8D: skull5
+* = $3740   ; $8D: skull5
     !bin "assets/sprites/skull5.spr"
-* = $2380   ; $8E: skull6
+* = $3780   ; $8E: skull6
     !bin "assets/sprites/skull6.spr"
-* = $23C0   ; $8F: skull7
+* = $37C0   ; $8F: skull7
     !bin "assets/sprites/skull7.spr"
 
 ;; Rock sprite data (asteroid) — block $90
-* = $2400
+* = $3800
     !bin "assets/sprites/rock.spr"
 
 ;; Radar indicator sprite data (crosshair target) — block $91
-* = $2440
+* = $3840
     !byte $00,$00,$00
     !byte $00,$10,$00
     !byte $00,$10,$00
@@ -2557,7 +2559,6 @@ chk_sid:
 ;; (Previously emitted at the end of the code region; it crossed the
 ;; $2000 boundary when the code grew and got overwritten by ship_r.spr.)
 * = $2900
-ds_title:  !scr "last star system", 0
 ds_press:  !scr "press fire to play", 0
 ds_credit: !scr "gpowerf 2026", 0
 
@@ -2700,8 +2701,9 @@ splash_bars:
     adc #>$d800
     sta $58
 
-    ;; Left bar: columns 0-5
-    ldy #5
+    ;; Left bar: columns 0-3 (narrowed from 0-5 — the chrome title
+    ;; spans cols 4-35 and must not be colour-clobbered)
+    ldy #3
 .sb_l:
     jsr lfsr_tick
     and #$0F
@@ -2709,14 +2711,14 @@ splash_bars:
     dey
     bpl .sb_l
 
-    ;; Right bar: columns 34-39
+    ;; Right bar: columns 36-39
     ldy #39
 .sb_r:
     jsr lfsr_tick
     and #$0F
     sta ($57), y
     dey
-    cpy #33
+    cpy #35
     bne .sb_r
 
     inc spl_row
@@ -2755,16 +2757,82 @@ draw_splash:
     inx
     bne .s_col
 
-    ;; Title in white at row 10, col 12
+    ;; Title: "LAST STAR SYSTEM" in chrome block letters (2 cols x 3
+    ;; rows of custom glyphs per letter), cols 4-35, rows 8-10.
+    ;; Copy the 48 logo glyphs into charset slots $B0-$DF first.
     ldx #0
-.s_tit:
-    lda ds_title, x
-    beq .s_sub
-    sta $0400+10*40+12, x
-    lda #1
-    sta $d800+10*40+12, x
+.tf_c1:
+    lda title_glyphs, x
+    sta $2580, x
     inx
-    bne .s_tit
+    bne .tf_c1
+.tf_c2:
+    lda title_glyphs + 128, x
+    sta $2600, x
+    inx
+    bne .tf_c2
+.tf_c3:
+    lda title_glyphs + 256, x
+    sta $2680, x
+    inx
+    cpx #128
+    bne .tf_c3
+
+    ldx #0                 ; letter position 0-15
+    ldy #0                 ; column offset = 2 * letter position
+.tl_pos:
+    lda title_text, x
+    beq .tl_space
+    sec
+    sbc #1
+    asl
+    sta tl_tmp             ; 2 * letter index
+    asl
+    asl
+    sec
+    sbc tl_tmp             ; 6 * letter index
+    clc
+    adc #$D0
+    sta tl_base            ; first glyph code of this letter
+    ;; row 8 — white sheen
+    lda tl_base
+    sta $0544, y
+    clc
+    adc #1
+    sta $0545, y
+    lda #1
+    sta $d944, y
+    sta $d945, y
+    ;; row 9 — yellow body
+    lda tl_base
+    clc
+    adc #2
+    sta $056c, y
+    lda tl_base
+    clc
+    adc #3
+    sta $056d, y
+    lda #7
+    sta $d96c, y
+    sta $d96d, y
+    ;; row 10 — orange base
+    lda tl_base
+    clc
+    adc #4
+    sta $0594, y
+    lda tl_base
+    clc
+    adc #5
+    sta $0595, y
+    lda #8
+    sta $d994, y
+    sta $d995, y
+.tl_space:
+    iny
+    iny                    ; next letter column (+2)
+    inx
+    cpx #16
+    bne .tl_pos
 
 .s_sub:
     ;; Subtitle in light gray at row 14, col 11
@@ -2914,3 +2982,17 @@ boom_tick:
     lda #11
     sta $d020
     rts
+
+;; ============================================================
+;; Splash title — chrome block logo (48 custom glyphs, $B0-$DF)
+;; ============================================================
+;; "LAST STAR SYSTEM" drawn as 16 block letters, 2 cols x 3 rows of
+;; 8x8 glyphs each (16x24 px per letter), spanning cols 4-35, rows
+;; 8-10.  Letter indices 1-8 (0 = space); glyph codes $B0 + 6*(n-1).
+;; Colour RAM paints the chrome gradient per glyph row:
+;;   row 0 white (1), row 1 yellow (7), row 2 orange (8).
+;; title_glyphs holds the 48 glyphs (generated by tools/title_font.py
+;; from the marketing cover's title treatment); they are copied into
+;; the charset copy at $3800 + $B0*8 = $3D80 once per splash draw.
+title_glyphs: !bin "assets/title_font.bin"
+title_text:   !byte 1,2,3,4,0,3,4,2,5,0,3,6,3,4,7,8   ; LAST STAR SYSTEM

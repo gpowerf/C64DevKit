@@ -60,7 +60,8 @@
 # =============================================================================
 
 mode: hires
-charset: 0x3800            # ROM charset copied at init by framework codegen
+charset: 0x2000            # ROM charset copied at init by framework codegen
+                        # (VIC block 2 — see c64devk.yaml; sprites at $3400)
 screen_ram: 0x0400
 background_color: 0        # black (overridden by colour RAM zones during init)
 border_color: 11           # dark grey
