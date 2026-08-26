@@ -19,8 +19,8 @@
 #            exhaust trail.  While moving, frames alternate every 2
 #            frames (25 Hz flicker → translucent trail); stationary
 #            (or outside PLAYING), frozen on frame 0 — no trail.
-#   enemy  — 7-frame hand-drawn tentacle cycle advancing every 6
-#            frames (file names keep the historical skull* prefix)
+#   enemy  — 8-frame fluid tentacle cycle (traveling wave) advancing
+#            every 6 frames (file names keep the historical skull* prefix)
 #
 # Memory layout (all sprites at `sprite_data` = $2000):
 #   $2000  ship_r.spr   (player, right, frame 0)  ptr $80 → $07F8
@@ -38,7 +38,7 @@
 #   $2300  skull4.spr   (enemy, frame 4)          ptr $8C → $07F9
 #   $2340  skull5.spr   (enemy, frame 5)          ptr $8D → $07F9
 #   $2380  skull6.spr   (enemy, frame 6)          ptr $8E → $07F9
-#   $23C0  (free — reserved for future frames)
+#   $23C0  skull7.spr   (enemy, frame 7)          ptr $8F → $07F9
 #   $2400  rock.spr     (asteroids)               ptr $90 → $07FA–$07FC
 #   $2440  inline data  (radar crosshair)         ptr $91 → $07FD
 #

@@ -82,9 +82,11 @@ sfx_c_go:
     lda #SID_WAVE_TRIANGLE | SID_GATE_ON
     sta SID_CTRL_1
     lda #6
-    sta sfx_dur
-    lda #2
-    sta sfx_step
+    sta sfx_dur           ; sfx_gate_off silences after the ring-out
+    lda #0
+    sta sfx_kind          ; chime complete — stop ticking (the old
+                          ; code left kind set, re-playing the note
+                          ; every ~5 s forever)
     rts
 sfx_c_n1:
     lda #$00              ; note 1: E-5

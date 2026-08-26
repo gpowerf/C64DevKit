@@ -17,6 +17,22 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-25 · level-5 softening + survival reward
+
+- **What:** The level-5 asteroid spawn interval softens from 20 to 24
+  frames (`level_spawns` last row), and every level-up at level 5 or
+  beyond grants +1 life (capped at 9 — the HUD life counter is one
+  digit).  The L5 signature stays: 3 concurrent rocks, ±3 px/frame
+  speeds, pulsing red octopus.
+- **Why:** The L4→L5 step stacked three difficulty levers at once
+  (count, speed cap, spawn rate) — a cliff rather than a slope, and
+  at the ceiling there was nothing to practice toward.  The spawn
+  softening trims the on-screen rock density ~15% without touching
+  the L5 signature; the life reward makes climbing at the ceiling
+  pay.  Lives were never refilled before, so ceiling runs kept
+  getting shorter.
+- **Commits:** *(landed together — see git log)*
+
 ## 2026-08-25 · vice_bridge: visual capture (model can see the game)
 
 - **What:** The framework can now grab the VICE video window as a PNG:

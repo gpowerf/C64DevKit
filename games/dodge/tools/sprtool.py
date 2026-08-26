@@ -42,7 +42,7 @@ SETS = {
     "ship_u": ["ship_u.spr", "ship_u1.spr"],
     "ship_d": ["ship_d.spr", "ship_d1.spr"],
     "skull": ["skull.spr", "skull1.spr", "skull2.spr", "skull3.spr",
-              "skull4.spr", "skull5.spr", "skull6.spr"],
+              "skull4.spr", "skull5.spr", "skull6.spr", "skull7.spr"],
     "rock": ["rock.spr"],
 }
 

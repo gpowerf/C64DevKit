@@ -35,32 +35,40 @@ Movement is detected by comparing sprite 0's VIC position against
 The gate lives in `anim_update`.  l1/d1 are hand-drawn variants, not
 mechanical mirrors of r1/u1.
 
-## Enemy (Octopus) — Frames 1-6
+## Enemy (Octopus) — Frames 1-7
 
 The enemy art is an octopus (sprite files keep the historical `skull*`
 prefix): mantle dome with two eyes, a web where the arms merge, two
-side sweeps flaring out, and hanging tentacle tips below.
+side sweeps flaring out, and hanging tentacles below.
 
 | File | Block | Pixel buffer |
 |------|-------|--------------|
-| `skull.spr` | $84 | Rest pose |
-| `skull1.spr` | $89 | Tentacles spreading |
-| `skull2.spr` | $8A | Tentacles spreading |
-| `skull3.spr` | $8B | Web open, tips out |
-| `skull4.spr` | $8C | Wide |
-| `skull5.spr` | $8D | Wide |
-| `skull6.spr` | $8E | Widest |
+| `skull.spr` | $84 | Rest pose (hand-drawn) |
+| `skull1.spr` | $89 | Wave frame 1 |
+| `skull2.spr` | $8A | Wave frame 2 |
+| `skull3.spr` | $8B | Wave frame 3 |
+| `skull4.spr` | $8C | Wave frame 4 |
+| `skull5.spr` | $8D | Wave frame 5 |
+| `skull6.spr` | $8E | Wave frame 6 |
+| `skull7.spr` | $8F | Wave frame 7 |
 
-### Animation: 7-frame cycle (0–6), advances every 6 frames (42-frame loop at 50Hz)
+### Animation: 8-frame cycle (0–7), advances every 6 frames (48-frame loop at 50Hz)
 
 ### Design direction
 
-Frame 0 is the resting pose.  Frames 1-6 are hand-drawn: the tentacles
-spread progressively — the web opens wider and the tips shift outward.
-Frame 6 is the widest; the cycle wraps straight back to the rest pose
-of frame 0.  Mantle and eyes stay fixed throughout.
+Frame 0 is the hand-drawn rest pose.  Frames 1-7 are a traveling-wave
+swim: each tentacle's per-row pixel runs are displaced horizontally by
+a sine wave whose amplitude ramps from the web anchor (zero) to the tip
+and whose phase advances down the arm, so the wave visibly travels
+down the tentacles.  Adjacent rows lean by at most one pixel and any
+diagonal gap is bridged, so the arms bend smoothly and never tear.
+The side sweeps paddle horizontally in anti-phase; the mantle, eyes
+and web stay fixed.  Frame 8 wraps seamlessly to the rest pose.
 
-Block $8F ($23C0) is free, reserved for future animation frames.
+`skull_manual.gif` (in `sprite_edit/`) preserves the pre-ripple
+hand-drawn frames; the generator is `tools/octopus_wave.py` —
+regenerate by re-running it against `skull.spr`, then `pack`.  Tune
+`AMP_TIP`, `ROW_LAG` and `TENT_LAG` for a different feel.
 
 ## Editing workflow (LibreSprite round trip)
 

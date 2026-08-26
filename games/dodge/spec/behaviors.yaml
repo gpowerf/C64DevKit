@@ -5,7 +5,8 @@
 # The player controls a ship avoiding an enemy octopus and asteroids.
 # Score accumulates while the ship stays in the green zone (left side).
 # The DMZ (right side, cols 28–39) provides collision immunity at a cost.
-# Level increases every 1000 points; enemy speed and asteroid count rise.
+# Level thresholds are binary: 256, 512, 1024, then every 512.
+# Enemy speed and asteroid count rise per level (capped at 5).
 #
 # Architecture note:
 #   The behaviour DSL handles the HUD display (display_text / display_number
@@ -25,7 +26,8 @@
 #   Name         Size   Init     Description
 #   ──────────── ────── ──────── ───────────────────────────────────────────
 #   score        2 B    0       16-bit score (little-endian, lo then hi)
-#   lives        1 B    3       Remaining lives
+#   lives        1 B    3       Remaining lives (capped at 9 by the
+#                                level-5 survival reward)
 #   enemy_x      1 B    100     Enemy logical X (software, not VIC register)
 #   enemy_y      1 B    80      Enemy logical Y
 #   enemy_init   1 B    0       Set to 1 after first-frame enemy position init
@@ -48,7 +50,6 @@
 #   dmz_row      1 B    1       DMZ row index (unused, historical)
 #   level        1 B    1       Level counter (increments forever; difficulty
 #                               tables cap at 5)
-#   prev_k       1 B    0       Previous score-hi-byte threshold for level-up
 #   speed_frac   1 B    128     Enemy fractional speed (128 = 25 px/s at 50 fps)
 #   ast_timer    1 B    40      Countdown to next asteroid spawn
 #   ast_active   1 B    0       Bitmask: bit0=ast0, bit1=ast1, bit2=ast2
@@ -77,7 +78,7 @@
 #   player_moving 1 B   0       Set by keyboard_read: 1 if sprite 0 moved
 #   prev_x/prev_y 1 B ea 0      Sprite 0 position last frame (delta detect)
 #   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
-#   enemy_frame  1 B    0       Enemy animation frame (0–6)
+#   enemy_frame  1 B    0       Enemy animation frame (0–7)
 #   boom_tmr     1 B    0       Death-boom countdown (0=inactive)
 #   pwr_avail    1 B    0       Invincibility charge available (0/1)
 #   pwr_flash    1 B    0       Flash cycle counter during invincibility
@@ -143,7 +144,7 @@ behaviors:
 #   PLAYING → DYING       Player/enemy collision OR asteroid collision
 #                            (requires: hit_timer==0, player not in DMZ,
 #                             distance gate < 18 px)
-#   PLAYING → TRANSITION   Score crosses 1000-point threshold (level-up)
+#   PLAYING → TRANSITION   Score crosses the binary threshold (level-up)
 #                            (also triggered by SPACE cheat key)
 #   TRANSITION → PLAYING    90-frame countdown expires; positions reset,
 #                            score_tmr/zone_ticks/last_safe zeroed for new level
@@ -352,13 +353,15 @@ behaviors:
 #   Every frame: sprite pointer $07F9 = $84 + enemy_frame (+4 skip
 #   when enemy_frame > 0, jumping over the four ship frame-1 blocks):
 #     $84 → $2100 (skull,  frame 0 — rest pose),
-#     $89 → $2240 (skull1, frame 1) … $8E → $2380 (skull6, frame 6)
-#   Frame 0 is the resting pose.  Frames 1-6 are hand-drawn: the
-#   tentacles spread progressively (web opening wider, tips shifting
-#   outward); frame 6 is the widest and the cycle wraps back to the
-#   rest pose of frame 0.  Mantle and eyes stay fixed.
-#   Block $8F ($23C0) is free, reserved for future frames.
-#   (Sprite files keep the historical skull* prefix.)
+#     $89 → $2240 (skull1, frame 1) … $8F → $23C0 (skull7, frame 7)
+#   Frame 0 is the hand-drawn rest pose.  Frames 1-7 are a traveling
+#   wave: each tentacle's pixel runs displace horizontally with the
+#   wave's amplitude ramping from the web anchor to the tip and its
+#   phase advancing down the arm, so the wave visibly travels down
+#   the tentacles; diagonal gaps between rows are bridged so the arms
+#   never tear, and the side sweeps paddle in anti-phase.  Mantle,
+#   eyes and web stay fixed.  Frame 8 wraps to the rest pose
+#   seamlessly.  (Sprite files keep the historical skull* prefix.)
 #
 
 
@@ -488,7 +491,7 @@ behaviors:
 #   4. Reset enemy position: X=100, Y=80, clear MSB bit 1
 #   5. Enable sprites 0+1 ($D015=$03)
 #   6. Reset asteroid system:
-#        level=1, prev_k=0, speed_frac=128, ast_timer=40
+#        level=1, speed_frac=128, ast_timer=40
 #        ast_active=0, ast_msb=0, ast_warn_dir=255
 #        ast_warn_x=0, ast_warn_y=0
 #        All 3 asteroid VIC positions off-screen (X=0, Y=250)
@@ -505,13 +508,19 @@ behaviors:
 # System 9 — Level System (level_update)
 # =============================================================================
 #
-# Level-up trigger:
-#   When score high byte exceeds prev_k:
-#     prev_k = score_hi   (tracks highest 256-point threshold seen)
+# Level-up trigger (binary thresholds — the score's HIGH byte IS
+# the level gate; all thresholds are page-aligned):
+#   threshold hi for reaching level+1 = 2*level - 2
+#   (level 1 -> $01: level 2 at 256; level 2 -> $02: level 3 at
+#   512; level 3 -> $04: level 4 at 1024; then every 512 —
+#   level 5 at 1536, level 6 at 2048, ...)
+#   When score hi reaches the threshold:
 #     level++
+#     If level >= 5 and lives < 9: lives++  (survival reward —
+#     softens the difficulty ceiling; HUD life digit caps at 9)
 #     If level >= 3: pwr_avail = 1  (award powerup charge)
 #     Apply new difficulty from tables
-#     Play level-up chirp on voice 3
+#     Play sfx_coin chime
 #
 # Levels continue beyond 5 — the counter, HUD (2-digit display) and
 # transition screen show the real number.  Only the difficulty table
@@ -519,7 +528,7 @@ behaviors:
 #
 # Difficulty tables:
 #   level_speeds:  [128,  128,  128,  154,  179]  = 25, 25, 25, 30, 35 px/s
-#   level_spawns:  [40,   40,   30,   25,   20]   = asteroid spawn interval (frames)
+#   level_spawns:  [40,   40,   30,   25,   24]   = asteroid spawn interval (frames)
 #
 #   Level 1:  25 px/s,   spawn every 40 frames,  0 asteroids (≤ level 2 gate)
 #   Level 2:  25 px/s,   spawn every 40 frames,  max 1 asteroid
@@ -736,7 +745,9 @@ behaviors:
 #
 #   Level-up (score threshold and SPACE cheat):
 #     sfx_coin — voice 1, two-note triangle chime E-5 → A-5,
-#     6 frames per note.
+#     6 frames per note.  The tick clears sfx_kind after note 2
+#     (a framework bug left it set, re-playing the note every
+#     ~5 s forever — audible over the death boom).
 #
 #   Game-over:
 #     sfx_drone — voice 1, low pulse rumble (~60 Hz), 30 frames.
@@ -853,9 +864,10 @@ behaviors:
 #
 # On level change:
 #   1. Apply speed_frac from level_speeds table
-#   2. Apply score from level_scores table:
-#        [0, 1000, 2000, 3000, 4000] — gives approximate score for level
-#      Set prev_k = score_hi to prevent immediate level_update trigger
+#   2. Apply score = binary threshold of the new level
+#      (256 / 512 / 1024 / 1536, hi byte only)
+#      (score = this level's threshold; the next threshold is
+#      higher, so level_update won't re-trigger)
 #   3. If score != 0: play level-up chirp
 #   4. If level ≥ 2: check if asteroid count < max, spawn one if room
 #      (uses same edge / random-angle logic as normal spawn, bypasses timer)
