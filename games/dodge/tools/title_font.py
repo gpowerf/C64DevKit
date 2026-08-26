@@ -28,23 +28,34 @@ N_FRAMES = 1
 
 TITLE = "LAST STAR SYSTEM"
 LETTERS = "LASTRYEM"          # unique letters, index 1..8 (0 = space)
+# (name, path, optional variation name for variable fonts)
+FONT_DIR = pathlib.Path(__file__).resolve().parent / "fonts"
 FONT_CANDIDATES = [
-    ("serif-ref",  "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
-    ("dejavu-sans","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-    ("liberation", "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"),
-    ("fira-cond",  "/usr/share/fonts/opentype/fira/FiraSansCondensed-Bold.otf"),
+    ("serif-ref",  "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", None),
+    ("dejavu-sans","/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", None),
+    ("orbitron",   str(FONT_DIR / "Orbitron.ttf"), "ExtraBold"),
+    ("russo-one",  str(FONT_DIR / "RussoOne-Regular.ttf"), None),
+    ("audiowide",  str(FONT_DIR / "Audiowide-Regular.ttf"), None),
+    ("michroma",   str(FONT_DIR / "Michroma-Regular.ttf"), None),
+    ("rajdhani",   str(FONT_DIR / "Rajdhani-Bold.ttf"), None),
 ]
 
 # chrome gradient per glyph row: white sheen / yellow body / orange base
 ROW_COLOURS = [1, 7, 8]       # white, yellow, orange
 
 
-def render_letter(ch, font_path, size, dilate=0):
+def render_letter(ch, font_path, size, dilate=0, variation=None):
     """Render one character bold: draw large, crop, downscale to fill
     the 16x24 cell (downscaling thick strokes keeps them bold), centred.
-    `dilate` 1 adds a pixel beyond every set pixel for a fatter stroke."""
+    `dilate` 1 adds a pixel beyond every set pixel for a fatter stroke.
+    `variation` sets a named weight axis on variable fonts (e.g. Orbitron)."""
     from PIL import Image, ImageDraw, ImageFont
     font = ImageFont.truetype(font_path, size)
+    if variation:
+        try:
+            font.set_variation_by_name(variation)
+        except Exception:
+            pass
     big = size * 2
     img = Image.new("L", (big, big), 0)
     d = ImageDraw.Draw(img)
@@ -83,10 +94,10 @@ def _dilate(grid):
     return ng
 
 
-def build_letters(font_path, dilate=0):
+def build_letters(font_path, dilate=0, variation=None):
     letters = {}
     for ch in LETTERS:
-        letters[ch] = render_letter(ch, font_path, 64, dilate)
+        letters[ch] = render_letter(ch, font_path, 64, dilate, variation)
     return letters
 
 
@@ -169,11 +180,12 @@ def compare_sheet(out_path):
     from PIL import Image, ImageDraw, ImageFont
     scale = 5
     row_w, row_h = 320 * scale, 200 * scale
-    rows = [(name, path, d) for name, path in FONT_CANDIDATES for d in (0, 1)]
+    rows = [(name, path, var, d)
+            for name, path, var in FONT_CANDIDATES for d in (0, 1)]
     sheet = Image.new("RGB", (row_w + 260, row_h * len(rows)), (30, 30, 30))
     draw = ImageDraw.Draw(sheet)
-    for i, (name, path, d) in enumerate(rows):
-        letters = build_letters(path, dilate=d)
+    for i, (name, path, var, d) in enumerate(rows):
+        letters = build_letters(path, dilate=d, variation=var)
         img = Image.new("RGB", (320, 200), (0, 0, 0))
         px = img.load()
         colour_rgb = {1: (255, 255, 255), 7: (255, 255, 0), 8: (255, 128, 0)}
@@ -190,7 +202,8 @@ def compare_sheet(out_path):
                                    (8 + gr) * 8 + r] = colour_rgb[ROW_COLOURS[gr]]
         big = img.resize((320 * scale, 200 * scale), Image.NEAREST)
         sheet.paste(big, (0, i * row_h))
-        draw.text((row_w + 12, i * row_h + 10), f"{name}\n{'' if not d else '+1px dilation'}",
+        draw.text((row_w + 12, i * row_h + 10),
+                  f"{name}\n{'' if not d else '+1px dilation'}",
                   fill=(255, 255, 255))
     sheet.save(out_path)
     print(f"comparison: {out_path}")
@@ -201,18 +214,18 @@ def main():
         compare_sheet(ROOT / "sprite_edit" / "title_compare.png")
         return
     choice = None
-    for i, (name, path) in enumerate(FONT_CANDIDATES):
+    for i, (name, path, var) in enumerate(FONT_CANDIDATES):
         if f"--font-{i}" in sys.argv or f"--font-{name}" in sys.argv:
-            choice = (name, path)
+            choice = (name, path, var)
             break
     if choice is None:
         choice = FONT_CANDIDATES[0]
     dilate = 1 if "--dilate" in sys.argv else 0
-    letters = build_letters(choice[1], dilate)
+    letters = build_letters(choice[1], dilate, choice[2])
     glyphs = split_glyphs(letters)
     write_bin(glyphs)
     preview(letters, str(PREVIEW))
-    print(f"font: {choice[0]} (dilate={dilate})")
+    print(f"font: {choice[0]} (dilate={dilate}, var={choice[2]})")
 
 
 if __name__ == "__main__":
