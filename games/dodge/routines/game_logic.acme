@@ -2641,8 +2641,14 @@ splash_wait:
     lda #0
     sta frame_ready
 
-    ;; DMZ-style side bars: shimmer columns 0-5 and 34-39
+    ;; DMZ-style side bars: shimmer columns 0-3 and 36-39
     jsr splash_bars
+
+    ;; Re-assert the logo glyphs every frame — the framework's init
+    ;; ROM-charset copy overwrites $2000-$27FF, so a re-init (autostart
+    ;; + keybuf SYS double-run, or the VICE-monitor g $0810) wipes the
+    ;; custom glyphs; one frame later this restores them.
+    jsr title_load
 
     ;; Check SPACE to start
     lda #$7f
@@ -2760,23 +2766,7 @@ draw_splash:
     ;; Title: "LAST STAR SYSTEM" in chrome block letters (2 cols x 3
     ;; rows of custom glyphs per letter), cols 4-35, rows 8-10.
     ;; Copy the 48 logo glyphs into charset slots $B0-$DF first.
-    ldx #0
-.tf_c1:
-    lda title_glyphs, x
-    sta $2580, x
-    inx
-    bne .tf_c1
-.tf_c2:
-    lda title_glyphs + 128, x
-    sta $2600, x
-    inx
-    bne .tf_c2
-.tf_c3:
-    lda title_glyphs + 256, x
-    sta $2680, x
-    inx
-    cpx #128
-    bne .tf_c3
+    jsr title_load
 
     ldx #0                 ; letter position 0-15
     ldy #0                 ; column offset = 2 * letter position
@@ -2792,8 +2782,8 @@ draw_splash:
     sec
     sbc tl_tmp             ; 6 * letter index
     clc
-    adc #$D0
-    sta tl_base            ; first glyph code of this letter
+    adc #$B0
+    sta tl_base            ; first glyph code of this letter ($B0 + 6*n)
     ;; row 8 — white sheen
     lda tl_base
     sta $0544, y
@@ -2859,6 +2849,30 @@ draw_splash:
     bne .s_clp
 
 .s_done:
+    rts
+
+;; Copy the 48 title logo glyphs (title_glyphs, 384 bytes) into the
+;; charset slot range $B0-$DF ($2580-$26FF).  Re-asserted every splash
+;; frame by splash_wait — a re-init's ROM-charset copy otherwise wipes
+;; them mid-splash.
+title_load:
+    ldx #0
+.tf_c1:
+    lda title_glyphs, x
+    sta $2580, x
+    inx
+    bne .tf_c1
+.tf_c2:
+    lda title_glyphs + 128, x
+    sta $2600, x
+    inx
+    bne .tf_c2
+.tf_c3:
+    lda title_glyphs + 256, x
+    sta $2680, x
+    inx
+    cpx #128
+    bne .tf_c3
     rts
 
 ;; ============================================================
