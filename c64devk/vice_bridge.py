@@ -224,6 +224,107 @@ def _parse_registers(resp: str) -> dict[str, int]:
     return vals
 
 
+# --- Window capture (visual verification) --------------------------------
+# VICE always opens an X11 window, even "headless" — the emulator's video
+# output lives in the innermost child window of the top-level "x64sc"
+# window.  Grabbing that area with Xlib gives an exact PNG of the frame
+# the user sees, no external screenshot tools needed.
+
+
+def _walk_windows(win):
+    yield win
+    for child in win.query_tree().children:
+        yield from _walk_windows(child)
+
+
+def _window_for_pid(disp, pid: int):
+    """Window object for the newest x64sc window owned by `pid`."""
+    try:
+        out = subprocess.run(
+            ["xdotool", "search", "--pid", str(pid), "--class", "x64sc"],
+            capture_output=True, text=True, timeout=5)
+        ids = [int(x) for x in out.stdout.split() if x.strip().isdigit()]
+        if ids:
+            return disp.create_resource_object("window", ids[-1])
+    except (subprocess.SubprocessError, ValueError, OSError):
+        pass
+    return None
+
+
+def find_vice_window(pid: int | None = None):
+    """Find the innermost video window of a VICE instance.
+
+    When `pid` is given (the PID of the VICE process we launched), the
+    window is matched by owner — the only reliable choice when several
+    VICE windows are open.  Otherwise the newest 'x64sc' window in the
+    tree is used.  Returns (display, window) or (None, None).
+    """
+    try:
+        from Xlib import display as xdisplay
+    except ImportError:
+        return None, None
+    try:
+        disp = xdisplay.Display()
+    except Exception:
+        return None, None
+
+    win = None
+    if pid is not None:
+        win = _window_for_pid(disp, pid)
+    if win is None:
+        # newest VICE process owns the newest window — try its PID first
+        try:
+            out = subprocess.run(["pgrep", "-n", "x64sc"],
+                                 capture_output=True, text=True, timeout=5)
+            newest = out.stdout.strip()
+            if newest.isdigit():
+                win = _window_for_pid(disp, int(newest))
+        except (subprocess.SubprocessError, OSError):
+            pass
+    if win is None:
+        # last resort: newest x64sc-classed window in the tree
+        root = disp.screen().root
+        cands = []
+        for w in _walk_windows(root):
+            try:
+                wm = w.get_wm_class()
+                if wm and wm[0].lower() == "x64sc" and w.get_geometry().width > 100:
+                    cands.append(w)
+            except Exception:
+                pass
+        if cands:
+            win = cands[-1]
+    if win is None:
+        return None, None
+
+    while True:
+        kids = win.query_tree().children
+        if not kids:
+            return disp, win
+        win = kids[-1]
+
+
+def capture_vice_window(path, pid: int | None = None) -> bool:
+    """Capture the VICE video window to a PNG at `path`.
+
+    Returns True on success.  Requires python-xlib and PIL (Pillow).
+    `pid` selects the VICE instance when several windows are open.
+    """
+    disp, win = find_vice_window(pid)
+    if win is None:
+        return False
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    geo = win.get_geometry()
+    raw = win.get_image(0, 0, geo.width, geo.height, 2, 0xFFFFFFFF)
+    img = Image.frombytes("RGB", (geo.width, geo.height), raw.data,
+                          "raw", "BGRX")
+    img.save(str(path))
+    return True
+
+
 class ViceMonitor:
     def __init__(self, host: str = "127.0.0.1", port: int = REMOTE_MONITOR_PORT):
         self.host = host
@@ -381,6 +482,17 @@ class ViceMonitor:
             except OSError:
                 pass
             self._sock = None
+
+    def screenshot(self, path, pid: int | None = None) -> bool:
+        """Capture the VICE video window to a PNG at `path`.
+
+        Lets a model visually verify the running game: launch with
+        -remotemonitor (VICE opens an X11 window even headless), then
+        call this to grab the exact frame.  Pass the launched process's
+        PID to target the right window when several VICE instances are
+        open.  Returns True on success.
+        """
+        return capture_vice_window(path, pid)
 
     def kill_vice(self, process: subprocess.Popen | None) -> None:
         """Kill the VICE process group safely. SIGTERM first, then SIGKILL."""

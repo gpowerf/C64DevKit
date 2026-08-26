@@ -44,6 +44,11 @@ def main() -> None:
     p_check.add_argument("--project", "-p", default=".", help="Project directory")
     p_clean = sub.add_parser("clean", help="Remove output/ directory")
     p_clean.add_argument("--project", "-p", default=".", help="Project directory")
+    p_shot = sub.add_parser("shot", help="Capture a screenshot of the running game in VICE")
+    p_shot.add_argument("--project", "-p", default=".", help="Project directory")
+    p_shot.add_argument("--out", "-o", default="shot.png", help="Output PNG path")
+    p_shot.add_argument("--wait", "-w", type=float, default=3.0,
+                        help="Seconds to let the game run before capturing")
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
 
     args = parser.parse_args()
@@ -66,6 +71,8 @@ def main() -> None:
             cmd_check(args.project)
         case "clean":
             cmd_clean(args.project)
+        case "shot":
+            cmd_shot(args.project, args.out, args.wait)
         case "setup":
             cmd_setup()
         case _:
@@ -414,6 +421,51 @@ def cmd_clean(project_path: str) -> None:
         return
     shutil.rmtree(output_dir)
     print(f"Removed {output_dir}")
+
+
+def cmd_shot(project_path: str, out_path: str, wait: float) -> None:
+    """Launch the game in VICE and capture a screenshot of the video window.
+
+    Lets a model visually verify the running game: the emulator's X11
+    window is grabbed with Xlib (no external screenshot tools needed)
+    and saved as a PNG the model can read.
+    """
+    project_dir = Path(project_path).resolve()
+    if not (project_dir / "c64devk.yaml").exists():
+        print(f"Error: no c64devk.yaml found in '{project_dir}'", file=sys.stderr)
+        sys.exit(1)
+
+    cmd_build(project_path)
+
+    from .config import get_output_build_dir
+    from .vice_bridge import launch_headless, ViceMonitor, capture_vice_window
+
+    spec = ProjectSpec.from_dir(project_dir)
+    prg_path = get_output_build_dir(project_dir) / spec.output
+
+    proc = launch_headless(prg_path)
+    if not proc:
+        print("Error: VICE failed to start", file=sys.stderr)
+        sys.exit(1)
+
+    import time
+    mon = ViceMonitor()
+    try:
+        if not mon.connect(timeout=10.0):
+            print("Error: could not connect to VICE monitor", file=sys.stderr)
+            mon.kill_vice(proc)
+            sys.exit(1)
+        mon.send("g")
+        time.sleep(max(0.0, wait))
+        if capture_vice_window(out_path, pid=proc.pid):
+            print(f"Screenshot saved: {out_path}")
+        else:
+            print("Error: could not capture the VICE window "
+                  "(python-xlib/Pillow missing, or no X11 window)", file=sys.stderr)
+            mon.kill_vice(proc)
+            sys.exit(1)
+    finally:
+        mon.kill_vice(proc)
 
 
 def cmd_setup() -> None:

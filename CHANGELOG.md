@@ -17,6 +17,19 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-25 · vice_bridge: visual capture (model can see the game)
+
+- **What:** The framework can now grab the VICE video window as a PNG:
+  `capture_vice_window(path, pid)` / `ViceMonitor.screenshot()` use
+  python-xlib to grab the innermost video window (PID-targeted via
+  xdotool, correct with multiple VICE instances open), and a new
+  `c64devk shot` command (build → launch → wait → capture) wraps it.
+  No external screenshot tools needed.
+- **Why:** All framework verification was numeric (memory/registers);
+  nothing could look at the game.  A model (or CI) can now visually
+  confirm splash text, sprite art, HUD and zone rendering.
+- **Commits:** *(landed together — see git log)*
+
 ## 2026-08-25 · death boom: layered explosion + border flash
 
 - **What:** Player death now plays a 60-frame layered boom
