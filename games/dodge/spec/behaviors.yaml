@@ -672,10 +672,14 @@ behaviors:
 #   If state != PLAYING → hide radar ($D015 bit 5 cleared)
 #   If ast_warn_dir == 255   → hide radar (no pre-rolled direction)
 #   Else:
-#     Position radar sprite (5) at (ast_warn_x, ast_warn_y) exactly.
-#     One clamp: warn_y ≥ 200 (bottom/low-side entries, below the
-#     visible screen) pins the marker to the bottom entry band (Y=190)
-#     so the warning itself stays on-screen while the rock climbs in.
+#     Position radar sprite (5) at (ast_warn_x, warn_y clamped into
+#     the visible entry band Y=10..190).  The raw spawn coordinates sit
+#     at/behind the edges by design (top spawns at Y=0 arrive over the
+#     HUD row, bottom spawns at Y=210 climb in from below) — a marker
+#     pinned there would sit on the HUD text or off-screen.  The band
+#     keeps the marker at the edge crossing where the rock first shows:
+#     top entries clamp to Y=10 (just below the HUD), bottom/low-side
+#     entries to Y=190 (the bottom entry band).
 #
 #   Enable sprite ($D015 | $20).
 #   On first frame of visibility (edge from hidden): play sfx_boop ping.

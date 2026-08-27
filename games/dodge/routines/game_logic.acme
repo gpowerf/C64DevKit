@@ -2079,18 +2079,24 @@ radar_do:
 
 .r_go:
 
-    ;; Marker = EXACT spawn position (warn_x, warn_y) for every edge —
-    ;; the old per-edge pins (Y=59 top / Y=229 bottom / X=230 right)
-    ;; drifted 19-51 px from where the rock actually enters.
-    ;; One clamp: a warn Y ≥ 200 sits below the visible screen (bottom
-    ;; and low side entries) — pin those to the bottom entry band (190)
-    ;; so the warning itself stays on-screen.
+    ;; Marker = the rock's ENTRY point on the visible screen: (warn_x,
+    ;; warn_y) clamped into the visible band Y=10..190.  The raw spawn
+    ;; coordinates deliberately sit at/behind the edges (top spawns at
+    ;; Y=0 arrive over the HUD row, bottom spawns at Y=210 climb in from
+    ;; below) — a marker pinned there would sit ON the HUD text or
+    ;; off-screen entirely.  The band keeps the marker at the edge
+    ;; crossing where the rock first shows.
     lda ast_warn_x
     sta $d00a
     lda ast_warn_y
-    cmp #200
+    cmp #10
+    bcs .r_y1
+    lda #10              ; top entries: just below the HUD row
+    jmp .r_yok
+.r_y1:
+    cmp #191
     bcc .r_yok
-    lda #190
+    lda #190             ; bottom/low-side entries: bottom band
 .r_yok:
     sta $d00b
 

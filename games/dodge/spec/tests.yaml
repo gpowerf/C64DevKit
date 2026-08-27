@@ -327,7 +327,7 @@ tests:
       - poke: {label: ast_warn_y, value: 0}
       - advance: 2
       - check: {what: memory, addr: $d00a, eq: 100}
-      - check: {what: memory, addr: $d00b, eq: 0}
+      - check: {what: memory, addr: $d00b, eq: 10}   # clamped below the HUD row
 
   - name: radar_marker_bottom_clamped_to_entry_band
     steps:

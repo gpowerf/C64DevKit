@@ -24,12 +24,15 @@ hashes link each entry back to the git record.
   downward right under the HUD row) instead of popping in at mid-field;
   side entries clamp to the visible band (Y 50-190, was 50-229 — rocks
   could previously enter below the screen and stay invisible); and
-  radar_do positions the marker at (warn_x, warn_y) exactly for every
-  edge — one clamp keeps bottom/low-side warnings on-screen (Y≥200 →
-  marker Y=190, the bottom entry band).  The old per-edge pins
-  (top Y=59, bottom Y=229, right X=230) drifted 19-51 px from the real
-  entry — the "rock appears in front of the radar" bug (the top spawn
-  was moved 50→110 in d9cd3d9 without moving the radar pin).
+  radar_do positions the marker at the rock's ENTRY POINT on the
+  visible screen: (warn_x, warn_y) clamped into the band Y=10..190 —
+  below the HUD row, above the bottom overflow.  The raw spawn coords
+  sit at/behind the edges by design (top Y=0 arrives over the HUD,
+  bottom Y=210 climbs in from below), so a marker pinned to them sat
+  ON the HUD text or off-screen.  The old per-edge pins (top Y=59,
+  bottom Y=229, right X=230) drifted 19-51 px from the real entry —
+  the "rock appears in front of the radar" bug (the top spawn was
+  moved 50→110 in d9cd3d9 without moving the radar pin).
 - **Also:** the despawn Y<10 sweep is now gated on direction (dy<0
   only) — top rocks entering at Y=0 would otherwise be killed by their
   own first movement step.
