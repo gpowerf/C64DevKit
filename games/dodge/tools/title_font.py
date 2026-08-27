@@ -44,28 +44,74 @@ FONT_CANDIDATES = [
 ROW_COLOURS = [1, 7, 8]       # white, yellow, orange
 
 
-def render_letter(ch, font_path, size, dilate=0, variation=None):
-    """Render one character bold: draw large, crop, downscale to fill
-    the 16x24 cell (downscaling thick strokes keeps them bold), centred.
-    `dilate` 1 adds a pixel beyond every set pixel for a fatter stroke.
-    `variation` sets a named weight axis on variable fonts (e.g. Orbitron)."""
-    from PIL import Image, ImageDraw, ImageFont
-    font = ImageFont.truetype(font_path, size)
-    if variation:
-        try:
-            font.set_variation_by_name(variation)
-        except Exception:
-            pass
+def _crop_letter(ch, font, size):
+    """Render one character large and crop to its ink bbox (None if blank)."""
+    from PIL import Image, ImageDraw
     big = size * 2
     img = Image.new("L", (big, big), 0)
     d = ImageDraw.Draw(img)
     d.text((big // 3, big // 4), ch, fill=255, font=font)
     bbox = img.getbbox()
     if not bbox:
+        return None
+    return img.crop(bbox)
+
+
+def _uniform_scale(font_path, variation):
+    """One scale factor for the whole title, so every letter shares the
+    same cap height and natural width (like the cover logo).  Orbitron
+    ExtraBold caps are near-square blocks (L/A/S/T/R 46x46, E 43x46,
+    Y 53x46, M 52x46 at 64px) — a per-letter width-fit made E taller
+    and Y/M shorter than the rest, the visible size disparity in
+    "SYSTEM".  Height-fit is capped at 13px, and the two widest letters
+    (Y, 53) must fit within the 15px caveat of the 16px cell, so
+    adjacent letters keep at least a 2px gap."""
+    from PIL import ImageFont
+    font = ImageFont.truetype(font_path, 64)
+    if variation:
+        try:
+            font.set_variation_by_name(variation)
+        except Exception:
+            pass
+    hs, ws = [], []
+    for ch in LETTERS:
+        crop = _crop_letter(ch, font, 64)
+        if crop is None:
+            continue
+        w, h = crop.size
+        ws.append(w)
+        hs.append(h)
+    if not hs:
+        return None
+    return min(13 / max(hs), 15 / max(ws))
+
+
+def render_letter(ch, font_path, size, dilate=0, variation=None, scale=None):
+    """Render one character bold: draw large, crop, downscale into the
+    16x24 cell — subject to ONE shared scale for the whole title (all
+    letters keep the same cap height, natural width variation), padded
+    so adjacent letters in the chrome logo keep a clear gap and stay
+    individually distinct.  Downscaling thick strokes keeps them bold
+    without sealing the counters (a post-render 8-neighbour dilation on
+    a 16px letter fatens every stroke by ~50% and fills holes — that
+    caused the earlier blobby, indistinct look; dilated +1px letters
+    are only used for comparison).  With `scale=None` the letter is
+    fitted per-into 14x21 (legacy --compare behaviour).
+    `dilate` 1 adds a pixel beyond every set pixel for a fatter stroke.
+    `variation` sets a named weight axis on variable fonts (e.g. Orbitron)."""
+    from PIL import Image, ImageFont
+    font = ImageFont.truetype(font_path, size)
+    if variation:
+        try:
+            font.set_variation_by_name(variation)
+        except Exception:
+            pass
+    cropped = _crop_letter(ch, font, size)
+    if cropped is None:
         return [[0] * 16 for _ in range(24)]
-    cropped = img.crop(bbox)
     w, h = cropped.size
-    scale = min(16 / w, 24 / h)
+    if scale is None:
+        scale = min(14 / w, 21 / h)
     nw, nh = max(1, round(w * scale)), max(1, round(h * scale))
     cropped = cropped.resize((nw, nh), Image.LANCZOS)
     out = Image.new("L", (16, 24), 0)
@@ -77,27 +123,11 @@ def render_letter(ch, font_path, size, dilate=0, variation=None):
     return grid
 
 
-def _dilate(grid):
-    """8-neighbour dilation: every empty cell next to a set pixel becomes
-    set (fatten the letterform by ~1px, then thin the holes back)."""
-    ng = [row[:] for row in grid]
-    for r in range(24):
-        for c in range(16):
-            if grid[r][c]:
-                continue
-            for dr in (-1, 0, 1):
-                for dc in (-1, 0, 1):
-                    rr, cc = r + dr, c + dc
-                    if 0 <= rr < 24 and 0 <= cc < 16 and grid[rr][cc]:
-                        ng[r][c] = 1
-                        break
-    return ng
-
-
 def build_letters(font_path, dilate=0, variation=None):
     letters = {}
+    scale = _uniform_scale(font_path, variation)
     for ch in LETTERS:
-        letters[ch] = render_letter(ch, font_path, 64, dilate, variation)
+        letters[ch] = render_letter(ch, font_path, 64, dilate, variation, scale)
     return letters
 
 

@@ -17,6 +17,32 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · splash title glyphs: Orbitron, distinct & uniform scale
+
+- **What:** The chrome splash title "LAST STAR SYSTEM" is now rendered
+  from the Orbitron variable font at weight ExtraBold (downloaded to
+  `games/dodge/tools/fonts/`, plus Russo One / Audiowide / Michroma /
+  Rajdhani as reviewed candidates via `title_font.py --compare`).
+  Two glyph bugs fixed on the way:
+  1. **Blobby, merged letters** — the 8-neighbour post-render dilation
+     (+1px on a 16px letter ≈ +50% stroke fat, sealed counters) is
+     dropped from the live path; each letter is downscaled from a
+     large render and padded (1px gutter, 2px inter-letter spacing)
+     instead of being width-fit edge-to-edge.
+  2. **Letter size disparity ("SYSTEM")** — per-letter width-fit scaled
+     each cap independently (Orbitron ExtraBold caps are near-square
+     blocks: E 43×46, L/A/S/T/R 46×46, M 52×46, Y 53×46), making E
+     taller and Y/M shorter.  `build_letters` now computes ONE shared
+     scale (`_uniform_scale`: ≤13px cap height, ≤15px width) so all
+     letters share a cap height with natural width variation, like the
+     cover logo.
+- **Why:** The `splash_stays_until_space` and boot-time screenshot
+  checks all passed, but the title read as a smear rather than the
+  cover's angular sci-fi letterforms; and within "SYSTEM" the Y/M/E
+  visibly mismatched the rest of the title.
+- **Commits:** `13b7c8b`, `2cb355f`, + this session's uniform-scale
+  commit (see git log).  Assets: `assets/title_font.bin` regenerated.
+
 ## 2026-08-25 · chrome block-logo splash title + charset relocation
 
 - **What:** The splash title "LAST STAR SYSTEM" is now drawn in chrome
