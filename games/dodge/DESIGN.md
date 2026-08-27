@@ -67,7 +67,7 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 ### Asteroids
 - Up to 3 independent rock sprites (sprites 2/3/4, block $85).
 - **Spawn from all 4 screen edges**: bottom (Y=210, lower border),
-  top (Y=21, just below the HUD row), left/right (X=24/230), at random
+  top (Y=16, just below the HUD row), left/right (X=24/230), at random
   positions along the edge with an inward velocity from a 16‑angle
   table.  Side entries randomise within the visible band (Y 50‑190).
 - Each angle is an LFSR‑picked (dx, dy) pair — diagonals, steep, shallow.

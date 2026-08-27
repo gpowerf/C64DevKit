@@ -648,8 +648,8 @@ behaviors:
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
 #    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the spawn
-#    cell AND the marker position — readable spots on each edge):
-#    BOTTOM Y=210 (lower border), TOP Y=21 (just below the HUD),
+#    cell AND the marker position — fully visible spots on each edge:
+#    BOTTOM Y=210 (lower border), TOP Y=16 (just below the HUD),
 #    LEFT X=24, RIGHT X=230 (at the DMZ threshold); side entries
 #    randomise the along-edge coordinate in the visible band
 #    (Y 50-190).
