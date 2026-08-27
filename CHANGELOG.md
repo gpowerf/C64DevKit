@@ -17,6 +17,32 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · asteroid edge classification fixed (root cause, finally)
+
+- **What:** Edges are now classified by the ANGLE GROUP INDEX, not sign
+  tests.  The 32-entry ast_angles table is grouped 0-7 bottom, 8-15
+  top, 16-23 right, 24-31 left — but the old classifier routed
+  diagonals by dy/dx signs, so a down-left TOP-angle (dx=-1/-2, e.g.
+  the (255,2)/(254,2) entries) fell into the RIGHT-edge branch:
+  warning+spawn landed at X=230 in the DMZ while the rock flew
+  down-left, top warnings went missing for those picks, and several
+  horizontal-group angles with dy≠0 misrouted to top/bottom.  This is
+  the source of the recurring "markers in the DMZ / wrong edges /
+  shifted" complaints across all previous coordinate tuning — the
+  coordinates were fine once grouped correctly.
+- **Fix:** ast_preview and ast_spawn both classify by group index
+  (TXA/LSR + CMP #8/#16/#24) — one rule everywhere.  Byte-verified in
+  the assembled PRG ($1853 spawn, $19CC preview): ladders + the exact
+  entry constants (dir 0/210, 1/16, 2/230, 3/24).
+- **Also re-confirmed:** marker = exact warn cell for all edges; entry
+  points fully visible (top 16, bottom 210, right 230, left 24);
+  despawn direction guard in the binary; sound presets anchored post
+  sprite data.
+- **Tests:** existing poke-driven marker/spawn tests pass; live level-5
+  observation shows right-edge warning+rock at the same cell.
+- **Commits:** (this change set)
+
+---
 ## 2026-08-26 · radar marker = exact entry point; top rocks enter at the border
 
 - **What:** Asteroid entry points now match the radar warning exactly.

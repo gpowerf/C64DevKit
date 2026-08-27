@@ -644,7 +644,12 @@ behaviors:
 # radar sprite can show it in advance.
 #
 # 1. Only runs if state == PLAYING.
-# 2. Pick random angle (CIA XOR raster, same method as spawn).
+# 2. Pick random angle (CIA XOR raster, same method as spawn), then
+#    classify the EDGE by ANGLE GROUP INDEX (0-7 bottom, 8-15 top,
+#    16-23 right, 24-31 left — the table groups ARE the edges).  Old
+#    sign-test classification misrouted diagonals (a down-left top
+#    angle has dx<0 and fell into the right-edge branch, warning rocks
+#    into the DMZ), so spawn + preview share ONE rule.
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
 #    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the spawn

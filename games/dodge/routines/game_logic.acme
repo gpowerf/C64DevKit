@@ -1447,27 +1447,27 @@ ast_spawn:
     sta ast_vy
 
 .determine_edge:
-    ;; Determine spawn edge from direction
-    ;; Bottom spawn: dy negative (bits 6-7 of dy set = $80-$FF)
-    lda ast_vy
-    bpl .not_bottom      ; positive dy → not bottom
+    ;; Classify by the angle GROUP index (0-7 bottom, 8-15 top,
+    ;; 16-23 right, 24-31 left) — SAME rule as ast_preview, so a
+    ;; pre-rolled angle is always warned on the edge it spawns from.
+    txa
+    lsr                    ; A = group index
+    cmp #$08
+    bcs .f_2
+
     ;; Bottom: Y=210 (lower border), random X
     lda #210
-    sta ast_tmp          ; reuse as Y position
+    sta ast_tmp          ; Y position
     jsr lfsr_tick
     and #$7F
     adc #40
     sta ast_tmp2
     jmp .reset_x
+.f_2:
+    cmp #$10
+    bcs .f_3
 
-.not_bottom:
-    ;; Top spawn: dy positive → Y=16 (the marker cell)
-    lda ast_vx
-    bmi .not_top         ; dx negative → left or right spawn
-    ;; Check if dy is positive and we're top-spawning
-    lda ast_vy
-    cmp #1
-    bcc .not_top         ; dy=0 → edge spawn, treat as right/left
+    ;; Top: Y=16 (the marker cell), random X
     lda #16
     sta ast_tmp
     jsr lfsr_tick
@@ -1475,12 +1475,11 @@ ast_spawn:
     adc #40
     sta ast_tmp2
     jmp .reset_x
+.f_3:
+    cmp #$18
+    bcs .f_4
 
-.not_top:
-    ;; Check dx: negative → right edge, positive → left edge
-    lda ast_vx
-    bpl .left_spawn
-    ;; Right edge: X=230 (DMZ threshold), random Y 50-190
+    ;; Right: X=230 (DMZ threshold), random Y 50-190
     lda #230
     sta ast_tmp2
     jsr lfsr_tick
@@ -1492,9 +1491,9 @@ ast_spawn:
 .ry_ok:
     sta ast_tmp
     jmp .reset_x
+.f_4:
 
-.left_spawn:
-    ;; Left edge: X=24, random Y 50-229
+    ;; Left: X=24, random Y 50-190
     lda #24
     sta ast_tmp2
     jsr lfsr_tick
@@ -1679,11 +1678,18 @@ ast_preview:
     lda ast_angles+1, x
     sta ast_next_vy
 
-    ;; Determine direction AND compute spawn position
-    lda ast_next_vy
-    bpl .ap_nb
+    ;; Classify by the angle GROUP index (0-7 bottom, 8-15 top,
+    ;; 16-23 right, 24-31 left) — the table groups ARE the edges.
+    ;; (Former sign tests misrouted diagonals: a down-left top angle
+    ;; has dx<0 and fell into the right-edge branch, dropping rocks
+    ;; and markers into the DMZ and skipping the top warning.)
 
-    ;; BOTTOM: Y=210 — in the lower border, below the text window;
+    txa
+    lsr                    ; A = group index (idx*2 stored in X)
+    cmp #$08
+    bcs .ap_p2
+
+    ;; BOTTOM: Y=210 — lower border, below the text window;
     ;; the rock enters there and climbs up into the field
     lda #0
     sta ast_warn_dir
@@ -1694,13 +1700,9 @@ ast_preview:
     adc #40
     sta ast_warn_x
     jmp .ap_tail
-
-.ap_nb:
-    lda ast_next_vx
-    bmi .ap_nt
-    lda ast_next_vy
-    cmp #1
-    bcc .ap_nt
+.ap_p2:
+    cmp #$10
+    bcs .ap_p3
 
     ;; TOP: Y=16 — two rows below the HUD, fully visible at the top
     ;; of the field; marker and rock share this exact cell
@@ -1713,10 +1715,9 @@ ast_preview:
     adc #40
     sta ast_warn_x
     jmp .ap_tail
-
-.ap_nt:
-    lda ast_next_vx
-    bpl .ap_lft
+.ap_p3:
+    cmp #$18
+    bcs .ap_p4
 
     ;; RIGHT: X=230 — at the DMZ threshold, readable; random Y 50-190
     lda #2
@@ -1732,9 +1733,9 @@ ast_preview:
 .ap_ry:
     sta ast_warn_y
     jmp .ap_tail
+.ap_p4:
 
-.ap_lft:
-    ;; LEFT: X=24, random Y 50-229
+    ;; LEFT: X=24, random Y 50-190
     lda #3
     sta ast_warn_dir
     lda #24
