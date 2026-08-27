@@ -628,6 +628,10 @@ behaviors:
 #     X < 8            → despawn
 #     (Right-edge asteroids despawn via Y-bound; no right X bound needed
 #     since they exit right and hit Y bounds or fly off-screen with MSB.)
+#     Despawn guard (dy sign): the Y<10 sweep only applies to upward
+#     rocks (dy < 0).  Down-moving/sideways rocks (dy ≥ 0 — including
+#     top spawns entering at Y=0) are exempt, or their first steps at
+#     the border would kill them instantly.
 #
 #   After movement loop: re-sync $D015 with ast_active bitmask.
 #     Only during PLAYING state.
@@ -643,7 +647,10 @@ behaviors:
 # 2. Pick random angle (CIA XOR raster, same method as spawn).
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
-#    ast_warn_x, ast_warn_y.
+#    ast_warn_x, ast_warn_y.  Edge rules: BOTTOM Y=210 (climbs in),
+#    TOP Y=0 (flush with the top border, enters downward), LEFT X=24,
+#    RIGHT X=255; side entries randomise the along-edge coordinate in
+#    the visible band (Y 50-190).
 # 5. Set ast_warn_dir (0=bottom, 1=top, 2=right, 3=left).
 # 6. Shuffle LFSR.
 #
@@ -653,20 +660,22 @@ behaviors:
 # System 11 — Radar Warning Indicator (radar_do)
 # =============================================================================
 #
-# Sprite 5 (radar) shows the exact spawn position of the next asteroid
-# BEFORE it appears, giving the player a visual warning.
+# Sprite 5 (radar) shows the EXACT spawn position of the next asteroid
+# BEFORE it appears, giving the player a visual warning.  The marker is
+# deliberately not an abstract "edge pin": it sits precisely where the
+# rock will materialise, so the arrival reads as the warned object
+# crossing the border (a prior version pinned Y=59 top / Y=229 bottom /
+# X=230 right and drifted 19-51 px from the real entry — the "rock
+# appears in front of the radar" bug).
 #
 # Logic:
 #   If state != PLAYING → hide radar ($D015 bit 5 cleared)
 #   If ast_warn_dir == 255   → hide radar (no pre-rolled direction)
 #   Else:
-#     Position radar sprite (5) at the pre-rolled coordinates,
-#     pinned to the appropriate screen edge:
-#
-#     ast_warn_dir 0 (bottom): X = ast_warn_x,  Y = 229
-#     ast_warn_dir 1 (top):    X = ast_warn_x,  Y = 59
-#     ast_warn_dir 2 (right):  X = 230,         Y = ast_warn_y
-#     ast_warn_dir 3 (left):   X = 24,          Y = ast_warn_y
+#     Position radar sprite (5) at (ast_warn_x, ast_warn_y) exactly.
+#     One clamp: warn_y ≥ 200 (bottom/low-side entries, below the
+#     visible screen) pins the marker to the bottom entry band (Y=190)
+#     so the warning itself stays on-screen while the rock climbs in.
 #
 #   Enable sprite ($D015 | $20).
 #   On first frame of visibility (edge from hidden): play sfx_boop ping.

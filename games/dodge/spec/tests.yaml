@@ -311,3 +311,63 @@ tests:
       - poke: {label: pwr_avail, value: 0}
       - advance: 2
       - check: {what: memory, addr: $041c, eq: $20}   # space when no charge
+
+  # ─── Radar / asteroid entry points ───────────────────────────────────
+  # The radar marker (sprite 5, $d00a/$d00b) must sit at the exact warn
+  # position, and the spawned rock must enter there too.  Top spawns
+  # enter flush with the top border (Y=0) and rely on the dy≥0 despawn
+  # exemption to survive their first steps.  Poke-driven: warn values
+  # are set directly, timer armed so the spawn fires on the next frame.
+  - name: radar_marker_matches_warn_top
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: ast_timer, value: 200}
+      - poke: {label: ast_warn_dir, value: 1}
+      - poke: {label: ast_warn_x, value: 100}
+      - poke: {label: ast_warn_y, value: 0}
+      - advance: 2
+      - check: {what: memory, addr: $d00a, eq: 100}
+      - check: {what: memory, addr: $d00b, eq: 0}
+
+  - name: radar_marker_bottom_clamped_to_entry_band
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: ast_timer, value: 200}
+      - poke: {label: ast_warn_dir, value: 0}
+      - poke: {label: ast_warn_x, value: 120}
+      - poke: {label: ast_warn_y, value: 210}
+      - advance: 2
+      - check: {what: memory, addr: $d00a, eq: 120}
+      - check: {what: memory, addr: $d00b, eq: 190}
+
+  - name: top_spawn_enters_flush_and_survives
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_warn_dir, value: 1}
+      - poke: {label: ast_warn_x, value: 100}
+      - poke: {label: ast_warn_y, value: 0}
+      - poke: {label: ast_next_vx, value: 1}
+      - poke: {label: ast_next_vy, value: 3}
+      - poke: {label: ast_timer, value: 1}
+      - advance: 1
+      - check: {what: memory, addr: $d004, eq: 101}   # x: 100 + dx 1
+      - check: {what: memory, addr: $d005, eq: 3}     # y: 0 + dy 3 — not despawned
+      - check: {what: memory, label: ast_active, eq: 1}
+
+  - name: bottom_spawn_enters_below_screen
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_warn_dir, value: 0}
+      - poke: {label: ast_warn_x, value: 80}
+      - poke: {label: ast_warn_y, value: 210}
+      - poke: {label: ast_next_vx, value: 0}
+      - poke: {label: ast_next_vy, value: 254}        # dy = -2 (upward)
+      - poke: {label: ast_timer, value: 1}
+      - advance: 1
+      - check: {what: memory, addr: $d004, eq: 80}
+      - check: {what: memory, addr: $d005, eq: 208}   # 210 - 2: climbing in
+      - check: {what: memory, label: ast_active, eq: 1}

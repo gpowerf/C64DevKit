@@ -17,6 +17,31 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · radar marker = exact entry point; top rocks enter at the border
+
+- **What:** Asteroid entry points now match the radar warning exactly.
+  Top rocks spawn flush with the top border (Y=110 → Y=0, entering
+  downward right under the HUD row) instead of popping in at mid-field;
+  side entries clamp to the visible band (Y 50-190, was 50-229 — rocks
+  could previously enter below the screen and stay invisible); and
+  radar_do positions the marker at (warn_x, warn_y) exactly for every
+  edge — one clamp keeps bottom/low-side warnings on-screen (Y≥200 →
+  marker Y=190, the bottom entry band).  The old per-edge pins
+  (top Y=59, bottom Y=229, right X=230) drifted 19-51 px from the real
+  entry — the "rock appears in front of the radar" bug (the top spawn
+  was moved 50→110 in d9cd3d9 without moving the radar pin).
+- **Also:** the despawn Y<10 sweep is now gated on direction (dy<0
+  only) — top rocks entering at Y=0 would otherwise be killed by their
+  own first movement step.
+- **Why:** rocks visibly materialised ahead of their radar marker,
+  breaking the warning's purpose; top entries appeared mid-field.
+- **Tests:** radar_marker_matches_warn_top,
+  radar_marker_bottom_clamped_to_entry_band,
+  top_spawn_enters_flush_and_survives,
+  bottom_spawn_enters_below_screen (poke-driven, deterministic).
+- **Commits:** (this change set)
+
+---
 ## 2026-08-26 · SPACE = keyboard fire; cheat keys removed; cracked-loader level select
 
 - **What:** The SPACE-bar level-cycle cheat (`cheat_keys` + `chk_sid` +

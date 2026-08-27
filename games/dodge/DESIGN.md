@@ -66,15 +66,23 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ### Asteroids
 - Up to 3 independent rock sprites (sprites 2/3/4, block $85).
-- **Spawn from all 4 screen edges**: bottom, top, left, right, at random
-  positions along the edge with an inward velocity from a 16‑angle table.
+- **Spawn from all 4 screen edges**: bottom (Y=210, climbs in), top
+  (Y=0, flush with the border, enters downward), left/right (X=24/255),
+  at random positions along the edge with an inward velocity from a
+  16‑angle table.  Side entries randomise within the visible band
+  (Y 50‑190).
 - Each angle is an LFSR‑picked (dx, dy) pair — diagonals, steep, shallow.
-- Move in a straight line; despawn when exiting the opposite edge.
+- Move in a straight line; despawn when exiting the opposite edge
+  (the Y<10 sweep only catches upward rocks, so top entries at Y=0
+  survive their first steps).
 - Respawn after ~30 frames (~0.6 s at 50 fps).
 - DMZ (player X ≥ 224) grants immunity — collision check returns early.
 - Distance gate (18 px) prevents false‑positive hardware collisions.
 - 16‑bit signed velocity, 8‑bit position with $D010 MSB per slot.
 - Rock sprite data at $2140 (64 bytes), yellow/orange/light‑red colours.
+- **Radar warning**: a crosshair marker sits at the exact spawn point
+  before the rock appears (bottom entries clamp the marker to the
+  visible bottom band, Y=190), with a sonar ping on arrival.
 
 ## Death
 - On collision: enemy teleports opposite player, player flashes 150 frames.

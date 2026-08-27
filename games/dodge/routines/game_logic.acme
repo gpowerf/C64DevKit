@@ -1461,14 +1461,14 @@ ast_spawn:
     jmp .reset_x
 
 .not_bottom:
-    ;; Top spawn: dy positive → Y=50, random X
+    ;; Top spawn: dy positive → Y=0, flush with the top border
     lda ast_vx
     bmi .not_top         ; dx negative → left or right spawn
     ;; Check if dy is positive and we're top-spawning
     lda ast_vy
     cmp #1
     bcc .not_top         ; dy=0 → edge spawn, treat as right/left
-    lda #110
+    lda #0
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1486,9 +1486,9 @@ ast_spawn:
     jsr lfsr_tick
     and #$7F
     adc #50
-    cmp #230
+    cmp #191
     bcc .ry_ok
-    lda #229
+    lda #190
 .ry_ok:
     sta ast_tmp
     jmp .reset_x
@@ -1500,9 +1500,9 @@ ast_spawn:
     jsr lfsr_tick
     and #$7F
     adc #50
-    cmp #230
+    cmp #191
     bcc .ly_ok
-    lda #229
+    lda #190
 .ly_ok:
     sta ast_tmp
     jmp .reset_x
@@ -1701,10 +1701,10 @@ ast_preview:
     cmp #1
     bcc .ap_nt
 
-    ;; TOP: Y=50, random X 40-167
+    ;; TOP: Y=0 — flush with the top border; the rock enters downward
     lda #1
     sta ast_warn_dir
-    lda #110
+    lda #0
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1724,9 +1724,9 @@ ast_preview:
     jsr lfsr_tick
     and #$7F
     adc #50
-    cmp #230
+    cmp #191
     bcc .ap_ry
-    lda #229
+    lda #190
 .ap_ry:
     sta ast_warn_y
     jmp .ap_tail
@@ -1740,9 +1740,9 @@ ast_preview:
     jsr lfsr_tick
     and #$7F
     adc #50
-    cmp #230
+    cmp #191
     bcc .ap_ly
-    lda #229
+    lda #190
 .ap_ly:
     sta ast_warn_y
 
@@ -1870,10 +1870,17 @@ ast_update:
     sta $d009
 
 .ds_chk:
-    ;; Check if off-screen (Y < 10 or Y > 235)
+    ;; Despawn: Y > 235 any direction; Y < 10 only for upward rocks
+    ;; (dy < 0 — those exited via the top).  Down-moving rocks (dy ≥ 0,
+    ;; e.g. top spawns entering at Y=0) are exempt from the Y<10 sweep
+    ;; or their first steps would kill them at the border.
+    lda ast_dy, x
+    bpl .ds_ylo
     lda ast_y, x
     cmp #10
     bcc .despawn
+.ds_ylo:
+    lda ast_y, x
     cmp #236
     bcc .ds_xchk
     bcs .despawn
@@ -2072,41 +2079,19 @@ radar_do:
 
 .r_go:
 
-    lda ast_warn_dir
-    beq .r_bot
-    cmp #1
-    beq .r_top
-    cmp #2
-    beq .r_rgt
-
-    ;; LEFT edge: pin X=24, exact Y
-    lda #24
-    sta $d00a
-    lda ast_warn_y
-    sta $d00b
-    bne .r_ena
-
-.r_rgt:
-    ;; RIGHT edge: pin X=240 (just before DMZ), exact Y
-    lda #230
-    sta $d00a
-    lda ast_warn_y
-    sta $d00b
-    bne .r_ena
-
-.r_top:
-    ;; TOP edge: pin Y=60, exact X
+    ;; Marker = EXACT spawn position (warn_x, warn_y) for every edge —
+    ;; the old per-edge pins (Y=59 top / Y=229 bottom / X=230 right)
+    ;; drifted 19-51 px from where the rock actually enters.
+    ;; One clamp: a warn Y ≥ 200 sits below the visible screen (bottom
+    ;; and low side entries) — pin those to the bottom entry band (190)
+    ;; so the warning itself stays on-screen.
     lda ast_warn_x
     sta $d00a
-    lda #59
-    sta $d00b
-    bne .r_ena
-
-.r_bot:
-    ;; BOTTOM edge: pin Y=229, exact X
-    lda ast_warn_x
-    sta $d00a
-    lda #229
+    lda ast_warn_y
+    cmp #200
+    bcc .r_yok
+    lda #190
+.r_yok:
     sta $d00b
 
 .r_ena:
