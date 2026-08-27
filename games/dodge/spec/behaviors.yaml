@@ -648,10 +648,11 @@ behaviors:
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
 #    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the spawn
-#    cell — the marker marks exactly where the rock materialises):
-#    BOTTOM Y=190, TOP Y=10 (one row below the HUD), LEFT X=24,
-#    RIGHT X=255; side entries randomise the along-edge coordinate in
-#    the visible band (Y 50-190).
+#    cell AND the marker position — readable spots on each edge):
+#    BOTTOM Y=210 (lower border), TOP Y=21 (just below the HUD),
+#    LEFT X=24, RIGHT X=230 (at the DMZ threshold); side entries
+#    randomise the along-edge coordinate in the visible band
+#    (Y 50-190).
 # 5. Set ast_warn_dir (0=bottom, 1=top, 2=right, 3=left).
 # 6. Shuffle LFSR.
 #
@@ -675,9 +676,8 @@ behaviors:
 #   Else:
 #   Else:
 #     Position radar sprite (5) at (ast_warn_x, ast_warn_y) exactly —
-#     the marker cell IS the spawn cell.  A defensive clamp keeps the
-#     marker inside the visible band Y=10..190 (below the HUD row,
-#     above the bottom overflow) should any warn value ever stray.
+#     the marker IS where the rock will appear (preview values are
+#     always visible-friendly; no clamps needed here).
 #
 #   Enable sprite ($D015 | $20).
 #   On first frame of visibility (edge from hidden): play sfx_boop ping.

@@ -1451,8 +1451,8 @@ ast_spawn:
     ;; Bottom spawn: dy negative (bits 6-7 of dy set = $80-$FF)
     lda ast_vy
     bpl .not_bottom      ; positive dy → not bottom
-    ;; Bottom: Y=190 (the marker cell), random X
-    lda #190
+    ;; Bottom: Y=210 (lower border), random X
+    lda #210
     sta ast_tmp          ; reuse as Y position
     jsr lfsr_tick
     and #$7F
@@ -1461,14 +1461,14 @@ ast_spawn:
     jmp .reset_x
 
 .not_bottom:
-    ;; Top spawn: dy positive → Y=10 (the marker cell)
+    ;; Top spawn: dy positive → Y=21 (the marker cell)
     lda ast_vx
     bmi .not_top         ; dx negative → left or right spawn
     ;; Check if dy is positive and we're top-spawning
     lda ast_vy
     cmp #1
     bcc .not_top         ; dy=0 → edge spawn, treat as right/left
-    lda #10
+    lda #21
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1480,8 +1480,8 @@ ast_spawn:
     ;; Check dx: negative → right edge, positive → left edge
     lda ast_vx
     bpl .left_spawn
-    ;; Right edge: X=255, random Y 50-229
-    lda #255
+    ;; Right edge: X=230 (DMZ threshold), random Y 50-190
+    lda #230
     sta ast_tmp2
     jsr lfsr_tick
     and #$7F
@@ -1683,11 +1683,11 @@ ast_preview:
     lda ast_next_vy
     bpl .ap_nb
 
-    ;; BOTTOM: Y=190 — materialises in the marker cell at the bottom
-    ;; entry band
+    ;; BOTTOM: Y=210 — in the lower border, above the visible floor;
+    ;; the rock enters there and climbs up into the field
     lda #0
     sta ast_warn_dir
-    lda #190
+    lda #210
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1702,12 +1702,11 @@ ast_preview:
     cmp #1
     bcc .ap_nt
 
-    ;; TOP: Y=10 — the rock materialises in the marker cell, one row
-    ;; below the HUD (the marker IS the spawn cell, so the arrival reads
-    ;; as the warned object appearing exactly where the radar said)
+    ;; TOP: Y=21 — just below the HUD row, visible at the top of the
+    ;; field; marker and rock share this exact cell
     lda #1
     sta ast_warn_dir
-    lda #10
+    lda #21
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1719,10 +1718,10 @@ ast_preview:
     lda ast_next_vx
     bpl .ap_lft
 
-    ;; RIGHT: X=255, random Y 50-229
+    ;; RIGHT: X=230 — at the DMZ threshold, readable; random Y 50-190
     lda #2
     sta ast_warn_dir
-    lda #255
+    lda #230
     sta ast_warn_x
     jsr lfsr_tick
     and #$7F
@@ -2082,25 +2081,13 @@ radar_do:
 
 .r_go:
 
-    ;; Marker = the rock's ENTRY point on the visible screen: (warn_x,
-    ;; warn_y) clamped into the visible band Y=10..190.  The raw spawn
-    ;; coordinates deliberately sit at/behind the edges (top spawns at
-    ;; Y=0 arrive over the HUD row, bottom spawns at Y=210 climb in from
-    ;; below) — a marker pinned there would sit ON the HUD text or
-    ;; off-screen entirely.  The band keeps the marker at the edge
-    ;; crossing where the rock first shows.
+    ;; Marker = the exact warn cell (warn_x, warn_y) — the preview picks
+    ;; readable, on-screen entry points (bottom 210 = lower border, top
+    ;; 21 = just under the HUD, sides 24/230 × Y 50-190), so no clamps
+    ;; are needed here; the marker IS where the rock will appear.
     lda ast_warn_x
     sta $d00a
     lda ast_warn_y
-    cmp #10
-    bcs .r_y1
-    lda #10              ; top entries: just below the HUD row
-    jmp .r_yok
-.r_y1:
-    cmp #191
-    bcc .r_yok
-    lda #190             ; bottom/low-side entries: bottom band
-.r_yok:
     sta $d00b
 
 .r_ena:
