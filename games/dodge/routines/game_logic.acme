@@ -1451,8 +1451,8 @@ ast_spawn:
     ;; Bottom spawn: dy negative (bits 6-7 of dy set = $80-$FF)
     lda ast_vy
     bpl .not_bottom      ; positive dy → not bottom
-    ;; Bottom: Y=210, random X
-    lda #210
+    ;; Bottom: Y=190 (the marker cell), random X
+    lda #190
     sta ast_tmp          ; reuse as Y position
     jsr lfsr_tick
     and #$7F
@@ -1461,14 +1461,14 @@ ast_spawn:
     jmp .reset_x
 
 .not_bottom:
-    ;; Top spawn: dy positive → Y=0, flush with the top border
+    ;; Top spawn: dy positive → Y=10 (the marker cell)
     lda ast_vx
     bmi .not_top         ; dx negative → left or right spawn
     ;; Check if dy is positive and we're top-spawning
     lda ast_vy
     cmp #1
     bcc .not_top         ; dy=0 → edge spawn, treat as right/left
-    lda #0
+    lda #10
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1683,10 +1683,11 @@ ast_preview:
     lda ast_next_vy
     bpl .ap_nb
 
-    ;; BOTTOM: Y=210, random X 40-167
+    ;; BOTTOM: Y=190 — materialises in the marker cell at the bottom
+    ;; entry band
     lda #0
     sta ast_warn_dir
-    lda #210
+    lda #190
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1701,10 +1702,12 @@ ast_preview:
     cmp #1
     bcc .ap_nt
 
-    ;; TOP: Y=0 — flush with the top border; the rock enters downward
+    ;; TOP: Y=10 — the rock materialises in the marker cell, one row
+    ;; below the HUD (the marker IS the spawn cell, so the arrival reads
+    ;; as the warned object appearing exactly where the radar said)
     lda #1
     sta ast_warn_dir
-    lda #0
+    lda #10
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F

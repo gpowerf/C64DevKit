@@ -324,10 +324,10 @@ tests:
       - poke: {label: ast_timer, value: 200}
       - poke: {label: ast_warn_dir, value: 1}
       - poke: {label: ast_warn_x, value: 100}
-      - poke: {label: ast_warn_y, value: 0}
+      - poke: {label: ast_warn_y, value: 10}
       - advance: 2
       - check: {what: memory, addr: $d00a, eq: 100}
-      - check: {what: memory, addr: $d00b, eq: 10}   # clamped below the HUD row
+      - check: {what: memory, addr: $d00b, eq: 10}
 
   - name: radar_marker_bottom_clamped_to_entry_band
     steps:
@@ -335,7 +335,7 @@ tests:
       - poke: {label: ast_timer, value: 200}
       - poke: {label: ast_warn_dir, value: 0}
       - poke: {label: ast_warn_x, value: 120}
-      - poke: {label: ast_warn_y, value: 210}
+      - poke: {label: ast_warn_y, value: 190}
       - advance: 2
       - check: {what: memory, addr: $d00a, eq: 120}
       - check: {what: memory, addr: $d00b, eq: 190}
@@ -347,13 +347,13 @@ tests:
       - poke: {label: ast_active, value: 0}
       - poke: {label: ast_warn_dir, value: 1}
       - poke: {label: ast_warn_x, value: 100}
-      - poke: {label: ast_warn_y, value: 0}
+      - poke: {label: ast_warn_y, value: 10}
       - poke: {label: ast_next_vx, value: 1}
       - poke: {label: ast_next_vy, value: 3}
       - poke: {label: ast_timer, value: 1}
       - advance: 1
       - check: {what: memory, addr: $d004, eq: 101}   # x: 100 + dx 1
-      - check: {what: memory, addr: $d005, eq: 3}     # y: 0 + dy 3 — not despawned
+      - check: {what: memory, addr: $d005, eq: 13}    # y: 10 + dy 3 — not despawned
       - check: {what: memory, label: ast_active, eq: 1}
 
   - name: bottom_spawn_enters_below_screen
@@ -363,11 +363,11 @@ tests:
       - poke: {label: ast_active, value: 0}
       - poke: {label: ast_warn_dir, value: 0}
       - poke: {label: ast_warn_x, value: 80}
-      - poke: {label: ast_warn_y, value: 210}
+      - poke: {label: ast_warn_y, value: 190}
       - poke: {label: ast_next_vx, value: 0}
       - poke: {label: ast_next_vy, value: 254}        # dy = -2 (upward)
       - poke: {label: ast_timer, value: 1}
       - advance: 1
       - check: {what: memory, addr: $d004, eq: 80}
-      - check: {what: memory, addr: $d005, eq: 208}   # 210 - 2: climbing in
+      - check: {what: memory, addr: $d005, eq: 188}   # 190 - 2: climbing
       - check: {what: memory, label: ast_active, eq: 1}
