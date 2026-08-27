@@ -653,11 +653,15 @@ behaviors:
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
 #    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the spawn
-#    cell AND the marker position — spots INSIDE the visible playfield
-#    (no border-window dependence): BOTTOM Y=176 (row 22), TOP Y=24
-#    (row 3), LEFT X=24, RIGHT X=230 (at the DMZ threshold); side
-#    entries randomise the along-edge coordinate in the visible band
-#    (Y 50-190).
+#    cell AND the marker position — positions computed on the CORRECT
+#    sprite-Y map: the C64 text window spans sprite-Y 50..250 (row 0 =
+#    50-58 … row 24 = 242-250), so a row N entry lives at Y = 50+8N.
+#    Entries: BOTTOM Y=234 (row 23), TOP Y=62 (row 1, just below the
+#    HUD), LEFT X=24, RIGHT X=230 (at the DMZ threshold); side entries
+#    randomise the along-edge coordinate in the visible band
+#    (Y 62-226).  (Earlier values 16/24/176/210 were computed against
+#    a 0-based field and landed rows 1 row short / in the borders —
+#    the recurring "above the border / far up" reports.)
 # 5. Set ast_warn_dir (0=bottom, 1=top, 2=right, 3=left).
 # 6. Shuffle LFSR.
 #

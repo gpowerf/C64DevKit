@@ -17,6 +17,27 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · radar/entries: correct sprite-Y map + no-marker regression
+
+- **Sprite-Y map corrected (the actual root cause of every round's
+  complaints):** the C64 text window spans sprite-Y **50..250** when
+  rows are 8 px — row 0 = 50-58 … row 24 = 242-250.  All previous
+  coordinates (0/16/21/24/110/176/190/210…) were computed against a
+  0-based field, so top markers/rocks rendered above the top border and
+  bottoms showed up 1/4–1/3 of a screen high on real hardware: the
+  "above the border" & "spawns far up" reports were literally correct.
+  Entries now: TOP Y=62 (row 1, below the HUD), BOTTOM Y=234 (row 23),
+  sides X=24/230 × Y 62-226, marker = exact warn cell.
+- **No-marker regression fixed:** the marker-linger ast_pdly countdown
+  skipped the preview entirely when nothing had claimed a warning yet
+  (fresh start at level ≥2 via the loader: warn_dir=255 forever → no
+  markers at all).  `beq .pd_d` now falls through to jsr ast_preview
+  when ast_pdly==0, so the pre-roll always happens.
+- **Verified visually** (X11 captures of real level-5 play): crosshair
+  rendering one row below the HUD, rocks spawning there and descending.
+- **Commits:** (this change set)
+
+---
 ## 2026-08-26 · radar/entries: in-field cells, marker linger, edge-class fix
 
 - **Edge classification by angle GROUP** (0-7 bottom, 8-15 top, 16-23

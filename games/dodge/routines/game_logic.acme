@@ -1462,8 +1462,8 @@ ast_spawn:
     cmp #$08
     bcs .f_2
 
-    ;; Bottom: Y=176 (row 22, in-field), random X
-    lda #176
+    ;; Bottom: Y=234 (row 23), random X
+    lda #234
     sta ast_tmp          ; Y position
     jsr lfsr_tick
     and #$7F
@@ -1474,8 +1474,8 @@ ast_spawn:
     cmp #$10
     bcs .f_3
 
-    ;; Top: Y=16 (the marker cell), random X
-    lda #16
+    ;; Top: Y=62 (the marker cell), random X
+    lda #62
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1491,10 +1491,10 @@ ast_spawn:
     sta ast_tmp2
     jsr lfsr_tick
     and #$7F
-    adc #50
-    cmp #191
+    adc #62
+    cmp #227
     bcc .ry_ok
-    lda #190
+    lda #226
 .ry_ok:
     sta ast_tmp
     jmp .reset_x
@@ -1505,10 +1505,10 @@ ast_spawn:
     sta ast_tmp2
     jsr lfsr_tick
     and #$7F
-    adc #50
-    cmp #191
+    adc #62
+    cmp #227
     bcc .ly_ok
-    lda #190
+    lda #226
 .ly_ok:
     sta ast_tmp
     jmp .reset_x
@@ -1695,12 +1695,11 @@ ast_preview:
     cmp #$08
     bcs .ap_p2
 
-    ;; BOTTOM: Y=176 — row 22, clearly inside the field above the
-    ;; bottom edge in any window mode; marker and rock share this
-    ;; exact cell
+    ;; BOTTOM: Y=234 — row 23, at the bottom of the text window
+    ;; (row 23 = sprite-Y 234..242); marker and rock share this cell
     lda #0
     sta ast_warn_dir
-    lda #176
+    lda #234
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1711,11 +1710,11 @@ ast_preview:
     cmp #$10
     bcs .ap_p3
 
-    ;; TOP: Y=24 — row 3, clearly inside the field below the HUD in
-    ;; any window mode; marker and rock share this exact cell
+    ;; TOP: Y=62 — row 1, right below the HUD row (text window spans
+    ;; sprite-Y 50..250); marker and rock share this exact cell
     lda #1
     sta ast_warn_dir
-    lda #24
+    lda #62
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1733,10 +1732,10 @@ ast_preview:
     sta ast_warn_x
     jsr lfsr_tick
     and #$7F
-    adc #50
-    cmp #191
+    adc #62
+    cmp #227
     bcc .ap_ry
-    lda #190
+    lda #226
 .ap_ry:
     sta ast_warn_y
     jmp .ap_tail
@@ -1749,10 +1748,10 @@ ast_preview:
     sta ast_warn_x
     jsr lfsr_tick
     and #$7F
-    adc #50
-    cmp #191
+    adc #62
+    cmp #227
     bcc .ap_ly
-    lda #190
+    lda #226
 .ap_ly:
     sta ast_warn_y
 
@@ -1770,9 +1769,10 @@ ast_update:
 .spwn:
     jsr ast_spawn
     lda ast_pdly        ;; next warning: linger then pre-roll
-    beq .pd_d
+    beq .pd_prev        ;; nothing claimed → pre-roll the next now
     dec ast_pdly
     bne .pd_d
+.pd_prev:
     jsr ast_preview
 .pd_d:
     ldx level
