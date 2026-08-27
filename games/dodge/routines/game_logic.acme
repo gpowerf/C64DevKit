@@ -36,6 +36,7 @@ level:      !byte 1    ; difficulty level (1-5+)
 start_level: !byte 0   ; level chosen on the splash (0/1 = level 1, 2-5 = selected)
 speed_frac: !byte 128  ; fractional speed (128/256*50 = 25 px/s)
 ast_timer:  !byte 40   ; countdown to next asteroid spawn
+ast_pdly:   !byte 0    ; linger countdown before the next radar warning (ast_preview)
 ast_active: !byte 0    ; bits 0-2: which asteroids are active
 ast_msb:    !byte 0    ; $D010 MSB bits for X >= 256
 ast_x:      !byte 24, 24, 24
@@ -1430,8 +1431,14 @@ ast_spawn:
     sta ast_tmp2
     lda ast_warn_y
     sta ast_tmp
-    lda #255
-    sta ast_warn_dir
+    ;; Keep the warning displayed on this cell until the rock crosses
+    ;; it: claim it with the linger counter (ast_preview fires when the
+    ;; counter expires — the marker doesn't teleport at spawn time).
+    lda ast_pdly
+    bne .no_claim
+    lda #8
+    sta ast_pdly
+.no_claim:
     jmp .reset_x
 .random_pick:
 
@@ -1455,8 +1462,8 @@ ast_spawn:
     cmp #$08
     bcs .f_2
 
-    ;; Bottom: Y=210 (lower border), random X
-    lda #210
+    ;; Bottom: Y=176 (row 22, in-field), random X
+    lda #176
     sta ast_tmp          ; Y position
     jsr lfsr_tick
     and #$7F
@@ -1643,9 +1650,8 @@ ast_spawn:
 .mb:
     sta ast_msb
     sta ast_msb
-    jsr lfsr_tick       ; shuffle for next spawn
-    jsr ast_preview
-    rts
+    jsr lfsr_tick       ; shuffle for next spawn; the next warning
+    rts                 ; is pre-rolled by ast_update when ast_pdly ends
 
 .done:
     jsr lfsr_tick       ; shuffle for next spawn
@@ -1689,11 +1695,12 @@ ast_preview:
     cmp #$08
     bcs .ap_p2
 
-    ;; BOTTOM: Y=210 — lower border, below the text window;
-    ;; the rock enters there and climbs up into the field
+    ;; BOTTOM: Y=176 — row 22, clearly inside the field above the
+    ;; bottom edge in any window mode; marker and rock share this
+    ;; exact cell
     lda #0
     sta ast_warn_dir
-    lda #210
+    lda #176
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1704,11 +1711,11 @@ ast_preview:
     cmp #$10
     bcs .ap_p3
 
-    ;; TOP: Y=16 — two rows below the HUD, fully visible at the top
-    ;; of the field; marker and rock share this exact cell
+    ;; TOP: Y=24 — row 3, clearly inside the field below the HUD in
+    ;; any window mode; marker and rock share this exact cell
     lda #1
     sta ast_warn_dir
-    lda #16
+    lda #24
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1762,6 +1769,12 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
+    lda ast_pdly        ;; next warning: linger then pre-roll
+    beq .pd_d
+    dec ast_pdly
+    bne .pd_d
+    jsr ast_preview
+.pd_d:
     ldx level
     cpx #6
     bcc .a_ok

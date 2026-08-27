@@ -17,6 +17,30 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · radar/entries: in-field cells, marker linger, edge-class fix
+
+- **Edge classification by angle GROUP** (0-7 bottom, 8-15 top, 16-23
+  right, 24-31 left) in both ast_preview and ast_spawn — the old sign
+  tests sent down-left top angles to the right branch (markers/rocks in
+  the DMZ) and horizontal angles with dy≠0 to top/bottom.  Byte-verified
+  in the built PRG (spawn $1853 / preview $19CC ladders).
+- **Entry cells moved INSIDE the visible playfield** — top Y=24
+  (row 3), bottom Y=176 (row 22), right X=230, left X=24 — previous
+  values (top 16/0, bottom 210) sat at the border line and rendered
+  differently depending on the window's border crop, reading as "above
+  the border" / "far off the edge" on some setups.  Never any border
+  dependence now.
+- **Marker linger**: when a rock spawns, its warning stays displayed on
+  the arrival cell for ~8 frames (ast_pdly) while the rock crosses it,
+  then the next warning pre-rolls — the marker no longer teleports to
+  the next edge at the exact spawn frame.
+- **Tests**: all four marker/spawn tests pinned to the new cells
+  ((100,24) / (120,176) markers; spawns 27/174 after first move).
+- **Verified live**: captures show the top marker at row ~3 and the rock
+  descending exactly from it; level-5 cycles running.
+- **Commits:** (this change set)
+
+---
 ## 2026-08-26 · asteroid edge classification fixed (root cause, finally)
 
 - **What:** Edges are now classified by the ANGLE GROUP INDEX, not sign
