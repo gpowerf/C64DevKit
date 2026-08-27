@@ -50,7 +50,7 @@ def generate_assembly(spec: "ProjectSpec") -> str:
         _emit_sprite_update(spec, lines)
 
     _emit_user_routines(spec, lines)
-    _emit_sound_presets(lines)
+    _emit_sound_presets(spec, lines)
     _emit_sprite_data(spec, lines)
     _emit_routines_footer(spec, lines)
     return "\n".join(lines)
@@ -900,10 +900,26 @@ def _emit_user_routines(spec: "ProjectSpec", lines: list[str]) -> None:
             lines.append("")
 
 
-def _emit_sound_presets(lines: list[str]) -> None:
-    """Include sound effect preset subroutines."""
+def _emit_sound_presets(spec: "ProjectSpec", lines: list[str]) -> None:
+    """Include sound effect preset subroutines.
+
+    Anchored at memory.sound_presets (default $3900 — above the sprite
+    blocks and user sprite bins, below the VIC window end).  Without the
+    anchor the presets continue linearly after game_logic and cross
+    $3400 in any project whose game_logic grows past ~$3024, at which
+    point _emit_sprite_data overwrites the running sound code (labels
+    keep their addresses; the bytes become sprite data — the game then
+    BRKs into BASIC the first time a sound ticks)."""
+    addr = spec.memory.sound_presets
     lines.append("")
+    lines.append(f";; Sound preset subroutines — anchored at ${addr:04X}")
+    lines.append(f";; (must not cross $4000; adjust memory.sound_presets if it does)")
+    lines.append(f"* = ${addr:04X}")
     lines.append('\t!source "macros/sound_presets.acme"')
+    lines.append("")
+    lines.append("\t!if * > $4000 {")
+    lines.append('\t\t!error "sound presets overflow $4000 — raise memory.sound_presets headroom"')
+    lines.append("\t}")
     lines.append("")
 
 

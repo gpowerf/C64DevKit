@@ -2,9 +2,11 @@
 
 ## Controls
 - **WASD** — move player
-- **SPACE** — start game (splash screen) / restart (game over)
-- **SPACE** (debug) — cycle levels 1→2→3→4→5→1 (compile-time flag `CHEAT_KEYS`)
-- **FIRE** (joystick port 2) / **LEFT SHIFT** (keyboard) — trigger powerup charge
+- **FIRE** (joystick port 2) / **SPACE** (keyboard) — start game from the splash, restart (game over), trigger powerup charge
+- **M** — cracked-menu level-select loader from the splash: digits 1-5
+  jump, joystick up/down + fire/SPACE confirm, F1 backs out.  Starting at
+  level n begins with that level's threshold score (256/512/1024/1536),
+  its speed, and its enemy colour — no charge/life awards
 
 ## Visual zones
 Three vertical stripes via color RAM on solid block characters:
@@ -41,7 +43,7 @@ Yars' Revenge style digital noise — full-zone colour-RAM refresh every 3 frame
 - DMZ (X ≥ 224) grants immunity to both
 - 0 lives → GAME OVER
 - GAME OVER: "GAME OVER" + "PRESS SPACE TO PLAY" centered
-- SPACE restarts: lives=3, score=0, player at (160,120), enemy at (100,80)
+- SPACE restarts: lives=3, score=0, level=1, player at (160,120), enemy at (100,80) (loader-selected levels land via do_init on fresh starts)
 
 ## Levels
 Level-ups fire every 256 points (when the score high byte crosses a new
@@ -83,13 +85,13 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ## Powerup
 - Reaching level 3 (or higher) awards one invincibility charge, capped at 1.
-- Triggered manually with FIRE (joystick port 2) or LEFT SHIFT (keyboard),
+- Triggered manually with FIRE (joystick port 2) or SPACE (keyboard),
   edge‑detected so it cannot auto‑fire while held.
 - Grants 2 seconds (100 frames) of invincibility via `hit_timer` — the
   collision systems need no special casing.
 - If already invincible, the longer timer wins (`max(hit_timer, 100)`).
 - `sfx_powerup` (ascending 4‑note arpeggio) plays on activation.
-- Cheat‑key level cycling does not award charges.
+- A loader level‑start does not award charges (transition awards only).
 - HUD shows a white "P" at row 0, col 28 while a charge is held.
 - Unused charges persist through death and transitions; `restart` clears.
 
@@ -154,8 +156,8 @@ $3800–$3FFF : copied ROM charset (2 KB)
 
 ## State machine
 ```
-SPLASH (3)   → "LAST STAR SYSTEM" + cyan bars + stars + DMZ
-                 ↓ SPACE
+SPLASH (3)   → "LAST STAR SYSTEM" + chrome logo + shimmer bars + DMZ
+                 ↓ fire/SPACE = level 1 · 1‑5 = that level · F1 = loader menu
 PLAYING (0)  → keyboard, enemy AI, scoring, collision
                  ↓ collision
 DYING (1)     → player flashes, 150‑frame timer
@@ -168,10 +170,13 @@ GAME_OVER (2) → show text, wait for SPACE → restart → PLAYING (0)
 - Black background with LFSR-placed decorative stars in upper/lower thirds.
 - Cyan bars on rows 9 and 16 frame the title/subtitle area.
 - Title "LAST STAR SYSTEM" in white at row 10, centered.
-- Subtitle "PRESS SPACE TO PLAY" in light grey at row 14, centered.
-- DMZ noise animates on the right side behind the text.
-- Player ship visible, stationary (no keyboard during splash).
-- SPACE transitions to PLAYING; restart skips splash.
+- Subtitle "press fire to play" (light grey, col 11) and loader hint
+  "f1 or 1-5: level select" (row 16) frame the title.
+- Cracked-loader menu (F1): white border, "START LEVEL 1-5" list with a
+  ">" highlight; digits/jump, joystick up-down + fire/SPACE, F1 back.
+- Frame loop only (no keyboard movement during splash).
+- fire/SPACE or a digit transitions to PLAYING (at the chosen level);
+  restart skips the splash.
 
 ## Sound
 - Death: voice 1 sawtooth, 5000 Hz, instant ADSR, 20 frames.

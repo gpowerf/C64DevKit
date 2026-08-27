@@ -17,6 +17,43 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-26 · SPACE = keyboard fire; cheat keys removed; cracked-loader level select
+
+- **What:** The SPACE-bar level-cycle cheat (`cheat_keys` + `chk_sid` +
+  `CHEAT_KEYS`) is gone, and keyboard fire is now SPACE across the board
+  (powerup trigger — LEFT SHIFT retired).  Level select ships as a
+  cracked-loader screen: **M** on the splash opens it (white border,
+  "***** start level *****", ">" marker); digits 1-5 jump straight to a
+  level, joystick up/down + fire/SPACE confirm, F1 backs out.  Starting
+  at level n applies its speed, threshold score (256/512/1024/1536) and
+  enemy colour via `do_init` consuming `start_level` — no charge/life
+  awards (transition-only).  Game-over restart always resets to level 1.
+- **Framework fix (the actual crash):** sound_presets emitted linearly
+  after game_logic — once game_logic grew past ~$3024 the section
+  crossed $3400 and `_emit_sprite_data` overwrote the running sound
+  code; `sfx_tick_all` became sprite bytes (`BRK` → READY., the
+  "SYS2061" symptom).  `_emit_sound_presets` now anchors the section at
+  `memory.sound_presets` (default $3900, dodge: $3900; ~$400 bytes,
+  overflow-guarded) above all sprite data.
+- **Loader hardening (lessons from the first cut):** menu strings typed
+  in lowercase (`!scr` stores bytes as typed — uppercase renders as
+  graphics garbage in this charset); loader entry on **M** (matrix
+  line 4) — line 0 is RETURN's line and the harness types "sys2061\r"
+  at boot, so a line-0 scan ate the CR; menu input runs edge detection
+  with an arming frame (`menu_prev`/`menu_armed`) so floating or stuck
+  joystick lines can't phantom-confirm a level; branch trampolines where
+  the grew block outgrew beq range.
+- **Verified:** deterministic VICE-monitor boot (`g 080D`), loader screen
+  drawn and stable through an 8s phantom-input soak (state stays 3),
+  level-plumbing poke test (start_level=5 → level 5, speed 179, score
+  $0600, playing), static 6/6, spec check PASS.
+- **Commits:** (this change set)
+
+---
+---
+---
+
+
 ## 2026-08-26 · splash title glyphs: Orbitron, distinct & uniform scale
 
 - **What:** The chrome splash title "LAST STAR SYSTEM" is now rendered

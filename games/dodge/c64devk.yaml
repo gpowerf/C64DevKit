@@ -7,6 +7,9 @@ memory:
   code_start: 0x0801
   code_end: 0xCFFF
   sprite_data: 0x3400
+  sound_presets: 0x3900  # sound preset code+tables — MUST sit above the
+                         #  sprite blocks and user sprite bins ($3400-$3881)
+                         #  and below $4000; the section is ~$400 bytes
   charset: 0x2000       # ROM charset copied here by framework codegen
                         # (VIC charset block 2 — frees $3800+ and keeps
                         #  the charset out of the sprite/ROM-window space)

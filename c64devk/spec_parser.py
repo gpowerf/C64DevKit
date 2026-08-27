@@ -12,6 +12,7 @@ class MemoryLayout:
     sprite_data: int = 0x2000
     charset: int = 0x3800
     screen_ram: int = 0x0400
+    sound_presets: int = 0x3900
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "MemoryLayout":
@@ -23,6 +24,7 @@ class MemoryLayout:
             sprite_data=_parse_int(d.get("sprite_data", "0x2000")),
             charset=_parse_int(d.get("charset", "0x3800")),
             screen_ram=_parse_int(d.get("screen_ram", "0x0400")),
+            sound_presets=_parse_int(d.get("sound_presets", "0x3900")),
         )
 
 

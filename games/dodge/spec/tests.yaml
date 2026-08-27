@@ -40,11 +40,27 @@ tests:
     steps:
       - check: {what: memory, label: state, eq: 3}
 
-  - name: splash_stays_until_space
+  - name: splash_stays_until_start
     start: splash
     steps:
       - advance: 30
       - check: {what: memory, label: state, eq: 3}
+
+  # ─── Level select (cracked loader) ─────────────────────────────
+  # The loader's key matrix reads can't be driven through the monitor
+  # harness, so this exercises the applied path: the splash stores the
+  # chosen level in start_level and the testability hook (state poke)
+  # takes the same exit path as fire/SPACE.  score sits 2 bytes after
+  # the "score" label per variable order — checked via addr.
+  - name: level_select_starts_at_picked_level
+    start: splash
+    steps:
+      - poke: {label: start_level, value: 5}
+      - poke: {label: state, value: 0}
+      - advance: 40
+      - check: {what: memory, label: level, eq: 5}
+      - check: {what: memory, label: speed_frac, eq: 179}
+      - check: {what: memory, addr: $E2A, eq: 6}
 
   # ─── Player movement ─────────────────────────────────────────────────
   - name: player_x_within_bounds

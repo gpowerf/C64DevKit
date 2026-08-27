@@ -65,8 +65,9 @@
 #   ast_next_vy  1 B    —       Pre-rolled spawn Y velocity
 #   ast_warn_x   1 B    —       Pre-rolled spawn X position
 #   ast_warn_y   1 B    —       Pre-rolled spawn Y position
+#   start_level  1 B    0       Level chosen on the splash (loader/M path);
+#                           consumed by do_init (0/1 = level 1, 2-5 = picked)
 #   c_saved      1 B    0       Saved $D01E value for multi-check in same frame
-#   cheat_spc    1 B    $FF     Previous SPACE state for edge detection
 #   radar_was    1 B    0       Radar visibility edge detect
 #   pulse_ctr    1 B    0       Enemy colour pulse timer (level 5+)
 #   trans_ready  1 B    0       Flag: level-up detected, trigger transition
@@ -157,8 +158,8 @@ behaviors:
 #   1. Always run sfx_gate_off + sfx_tick_all + dmz_do
 #   2. If SPLASH: jump to do_splash, own frame loop (bypasses everything)
 #   3. If TRANSITION: jump to do_transition (draw text, countdown)
-#   4. Else: keyboard + cheat_keys + player animation + powerup HUD
-#            indicator + level_update + ast_update + radar_do
+#   4. Else: keyboard + player animation + powerup HUD indicator +
+#            level_update + ast_update + radar_do
 #   5. If PLAYING: do_play (pwr_check, enemy_do, score_do, collision_do,
 #            ast_collision, invincibility flash)
 #   6. If DYING:   do_die (flash, timer, respawn or game over)
@@ -799,49 +800,68 @@ behaviors:
 #
 # Runs its OWN frame loop — completely bypasses the main loop's behaviours_update.
 # The splash routine owns frame_ready, advances it internally, and never returns
-# to the main loop until SPACE transitions to PLAYING.
+# to the main loop until fire/SPACE transitions to PLAYING.
 #
 # Initialisation (draw_splash, called once):
 #   1. Fill screen RAM ($0400–$07E7) with $A0 (solid block)
 #   2. Fill colour RAM ($D800–$DBE7) with 0 (black)
 #   3. Write title: "last star system" → row 10, col 12, colour white (1)
 #   4. Write prompt: "press fire to play" → row 14, col 11, colour lt.grey (15)
-#   5. Write credit: "gpowerf 2026" → row 22, col 14, colour lt.grey (15)
-#   6. Text via !scr (lowercase ASCII → PETSCII screen codes)
-#      The ds_title / ds_press / ds_credit strings live at $2900 —
+#   5. Write loader hint: "f1 or 1-5: level select" → row 16, col 11, lt.grey (15)
+#   6. Write credit: "gpowerf 2026" → row 22, col 14, colour lt.grey (15)
+#   7. Text via !scr (lowercase ASCII → PETSCII screen codes)
+#      The ds_press / ds_hint / ds_credit strings live at $2900 —
 #      after the sound presets, clear of both the code region (which
 #      is guarded against crossing $2000 into the base sprite data)
-#      and the sprite/sfx data.  They previously sat at the end of the
-#      code region and were silently overwritten by ship_r.spr when the
-#      code grew past $2000 (the title screen showed garbage).
+#      and the sprite/sfx data.  The menu strings sit at the end of the
+#      extended splash block ($2A00+), after the title glyphs.
+#      (Strings previously sat at the end of the code region and were
+#      silently overwritten by ship_r.spr when the code grew past
+#      $2000 — the title screen showed garbage.)
 #
-# Frame loop (do_splash, runs every frame after draw):
+# Frame loop (splash_wait, runs every frame after draw):
 #   1. Disable all sprites ($D015 = 0)
 #   2. Wait for frame_ready (busy-wait on frame_ready==0, then clear it)
-#   3. Call splash_bars — shimmer side columns 0–5 and 34–39
-#   4. Check SPACE bar (write $7F → $DC00, read $DC01 bit 4)
-#      AND joystick port 2 fire (write $00 → $DC02, read $DC00 bit 4,
-#      restore $FF → $DC02)
-#   5. Testability hook: if state != GAME_SPLASH, exit via the normal
+#   3. Call splash_bars — shimmer side columns 0–3 and 36–39
+#   4. Keyboard fire — SPACE (write $7F → $DC00, read $DC01 bit 4):
+#      start the game (level 1 unless start_level was pre-set)
+#   5. M (matrix line 4, write $EF → $DC00, read $DC01 bit 4): open the
+#      level-select loader (System 15).  Deliberately NOT F1 — line 0 is
+#      RETURN's line and the harness types "sys2061\r" at boot; a
+#      per-frame line-0 scan collides with that CR delivery.  Line 4
+#      carries no keystroke of the boot typing.
+#   6. Joystick port 2 fire (write $00 → $DC02, read $DC00 bit 4,
+#      restore $FF → $DC02): start the game
+#   7. Testability hook: if state != GAME_SPLASH, exit via the normal
 #      start path.  Inert during real play (nothing writes state while
 #      splashing) — VICE-monitor tests poke state to leave the splash.
-#   6. If SPACE/fire pressed OR state changed:
-#        - Set init_done = 0  (forces do_init re-run with game screen)
+#   8. If a start trigger fired (or state changed):
+#        - Border back to dark grey ($D020 = 11)
+#        - If start_level == 0: set it to 1
+#        - Set init_done = 0  (forces do_init re-run with game screen),
+#          which consumes start_level (level, speed, score threshold,
+#          enemy colour — see System 15)
 #        - Enable sprites 0+1 ($D015 = $03)
 #        - Set state = PLAYING
 #        - Return to main loop (splash never runs again)
 #      Else:
 #        - Jump back to the loop top (splash_wait label) forever
 #
+#   NOTE: the only extra matrix scan beyond the base's SPACE line is M
+#   on line 4 — chosen because the boot typing ("sys2061\r") never
+#   touches line 4, while RETURN (the CR) lives on line 0.
+#
 # The loop top is a global label (splash_wait) so the test harness can
 # breakpoint inside the loop — main_loop is unreachable while splashing.
 #
 # Side bars (splash_bars, called from frame loop):
 #   - dmz_timer-style 3-frame cycle
-#   - Refresh cols 0–5 and 34–39 on every row (25 rows × 12 cols = 300 cells)
+#   - Refresh cols 0–3 and 36–39 on every row (25 rows × 8 cells = 200 cells)
 #   - Per-cell: LFSR → random colour (AND $0F) → colour RAM
 #   - Uses d_mul40 for row×40 address calculation
 #   - Creates shimmer effect matching DMZ aesthetic
+#   - Narrowed from 0–5/34–39 so the chrome title (cols 4–35) is never
+#     colour-clobbered
 #
 # Transition to gameplay:
 #   init_done = 0 causes do_init to run again next frame, overwriting
@@ -851,32 +871,44 @@ behaviors:
 
 
 # =============================================================================
-# System 15 — Cheat Keys (cheat_keys)
+# System 15 — Level-Select Loader (menu_wait + loader_draw)
 # =============================================================================
 #
-# SPACE bar (edge-triggered) cycles through levels 1–5:
-#   1 → 2 → 3 → 4 → 5 → 1 (wraps)
+# Classic cracked-loader screen, opened with M from the splash:
+#   - white border, black screen, "***** start level *****" header
+#   - items 1-5 ("n .. start at level n"), ">" marker on the selection
+#   - footer: fire/space play | 1-5 jump | f1 back
 #
-# Edge detection via cheat_spc:
-#   SPACE pressed: cheat_spc==$FF (was up) → edge → advance level
-#   SPACE held:    cheat_spc==0   (was down) → no action
-#   SPACE up:      cheat_spc = $10 (mark as not-pressed)
+# Input (menu_wait, owns frame_ready like splash_wait):
+#   - digits 1-5 (matrix lines 7/1/2): jump straight to that level
+#   - joystick up/down (lines... port 2 bits 0/1): move the marker
+#   - joystick fire OR SPACE: confirm the highlighted level
+#   - F1 (line 0 — safe here, the boot typing is long done): back out
 #
-# On level change:
-#   1. Apply speed_frac from level_speeds table
-#   2. Apply score = binary threshold of the new level
-#      (256 / 512 / 1024 / 1536, hi byte only)
-#      (score = this level's threshold; the next threshold is
-#      higher, so level_update won't re-trigger)
-#   3. If score != 0: play level-up chirp
-#   4. If level ≥ 2: check if asteroid count < max, spawn one if room
-#      (uses same edge / random-angle logic as normal spawn, bypasses timer)
-#   5. Reset ast_timer = 1 (fast next spawn)
+# Floating-line guard: unplugged joysticks can read phantom lows, and a
+# stuck line would confirm instantly.  menu_wait therefore runs EDGE
+# detection (menu_joy AND NOT menu_prev) and ARMS on its first frame
+# (menu_armed: sample the idle state, act only on later transitions).
 #
-# cheats.x65 or CHEAT_KEYS constant can disable (set to 0).
+# Strings are LOWERCASE !scr: this game's charset renders lowercase-
+# typed text as caps; UPPERCASE-typed text lands as raw ASCII and
+# displays as graphics garbage (root cause of the first cut's garble).
 #
-
-
+# Start-level application (do_init, main region):
+#   start_level (0/1 = level 1, 2-5 = selected) drives a fresh start:
+#     level = start_level
+#     speed_frac = level_speeds[level-1]   (level > 5 clamps to the L5 row)
+#     score = the level's binary threshold, "as if earned":
+#              level 2 → 256, 3 → 512, 4 → 1024, 5 → 1536
+#              (score+1 = $01/$02/$04/$06 — all below the NEXT level-up
+#               threshold, so no instant re-level-up at boot)
+#     $D028 = light red at level 5+, red otherwise (level_update rule)
+#   No powerup charge or survival life is awarded by a level-select
+#   start: those are level-up transition awards only.  restart (game-
+#   over) always resets to level 1 and does NOT read start_level.
+#   The VICE tests drive the plumbing directly (poke start_level + the
+#   splash hook): level_select_starts_at_picked_level.
+#
 # =============================================================================
 # System 16 — DMZ Counter (score_do DMZ path)
 # =============================================================================
@@ -896,7 +928,7 @@ behaviors:
 #
 # Reaching level 3 (or higher) awards one invincibility charge.
 # The charge is triggered manually with FIRE (joystick port 2) or
-# LEFT SHIFT (keyboard), granting 2 seconds (100 frames) of flashing
+# SPACE (keyboard), granting 2 seconds (100 frames) of flashing
 # invincibility.  No powerup sprite exists — it is an ability, not
 # an item.
 #
@@ -904,13 +936,13 @@ behaviors:
 #   After level++, if level >= 3:
 #     pwr_avail = 1
 #   Charge is capped at 1 (leveling up again refreshes it).
-#   Cheat-key level cycling does NOT award charges (bypasses the
+#   A loader level-start does NOT award charges (bypasses the
 #   score-threshold path).
 #
 # Trigger (pwr_check, called from do_play each PLAYING frame):
 #   Reads FIRE:  $DC02 = $00 (all inputs), $DC00 bit 4, restore $FF.
-#   Reads LEFT SHIFT: $FD → $DC00, $DC01 bit 7.
-#   Edge detection via pwr_key (same pattern as cheat_spc):
+#   Reads SPACE (= keyboard fire): $7F → $DC00, $DC01 bit 4.
+#   Edge detection via pwr_key (press/release latch pattern):
 #     pwr_key = 0 while held, 1 when released.
 #     Trigger only on the released → pressed edge.
 #   On trigger:

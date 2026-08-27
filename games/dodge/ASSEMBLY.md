@@ -9,16 +9,16 @@ the reusable patterns and explains the architecture.
 ## File Layout & Memory
 
 ```
-Lines 1–6     Comment header, CHEAT_KEYS constant
-Line 7         jmp gstart          ← skip variable data
-Lines 10–67    !byte variables     ← 48 game-state variables
+Lines 1–4     Comment header
+Line 5         jmp gstart          ← skip variable data
+Lines 8–70     !byte variables     ← 49 game-state variables (incl. start_level)
 Lines 69–73    Constants (GAME_PLAYING=0, GAME_DYING=1, GAME_OVER=2, GAME_SPLASH=3, GAME_TRANSITION=4)
 Lines 76–190   gstart:             ← frame dispatcher (jsr chain + state switch)
 Lines 192–309  init_once / do_init ← one-shot screen setup
 Lines 310–388  do_play + pwr_check ← PLAYING state + fire/shift powerup trigger
 Lines 389–437  do_die:             ← DYING state (flash + timer)
 Lines 438–503  do_over:            ← GAME_OVER state (draw + wait)
-Lines 504–622  restart:            ← reset all state on replay
+Lines 504–622  restart:            ← reset all state on replay (level/speed/score → level 1 fresh start)
 Lines 623–790  keyboard_read:      ← WASD keyboard scan + joystick port 2
 Lines 790–884  enemy_do:           ← enemy chase AI
 Lines 885–957  score_do:           ← zone-based scoring
@@ -36,10 +36,9 @@ Lines 1961–1972 lfsr_tick:         ← Galois LFSR RNG
 Lines 1973–2001 dmz_init:          ← DMZ colour RAM init fill
 Lines 2002–2038 dmz_do:            ← DMZ per-frame static refresh
 Lines 2039–2075 d_mul40:           ← row × 40 multiply
-Lines 2076–2350 cheat_keys:        ← SPACE level-cycle debug
-Lines 2351–2355 chk_sid:           ← cheat level-up sound
-Lines 2356–2532 do_splash / draw_splash / splash_bars  ← splash screen
-Lines 2533+    * = $2140 → animation frame + rock + radar sprite data
+Lines 2076–2330 do_splash / draw_splash / splash_bars  ← splash screen
+Lines 2330–2740 menu_wait / loader_draw / menu_puts / menu_marker ← cracked level-select loader
+Lines 2741+     * = $2140 → animation frame + rock + radar sprite data
 Lines 2220     * = $2180 → radar sprite data
 ```
 
@@ -192,7 +191,7 @@ in_down:
 ```
 
 The dodge game uses this pattern in three places:
-- `cheat_keys` — SPACE level cycle (`cheat_spc`)
+- `pwr_check` — fire/SPACE keyboard-fire edge (`pwr_key`)
 - Sound demo — preset cycling (`btn_was`)
 - Radar ping — indicator appears (`radar_was`)
 
@@ -277,11 +276,6 @@ because `RTS` pulls the address and jumps to `addr+1`.  Since we pushed
 popped PC by 1 automatically.  This is standard 6502 trickery: push
 `(target−1)` for RTS to land on `target`.  **If the preset returns to the wrong
 address, the pushed value needs `−1`**.
-
-**Note**: The dodge game's `chk_sid` uses a cleaner approach — `jmp sfx_coin`
-from a `jsr`-called subroutine.  The `jsr chk_sid` already pushed the return
-address; `jmp sfx_coin` forwards it; `sfx_coin`'s `RTS` returns to `cheat_keys`.
-No manual stack manipulation needed.
 
 ---
 
@@ -632,15 +626,27 @@ do_splash:
     sta frame_ready
 
     jsr splash_bars       ; DMZ-style side shimmer
+    jsr title_load        ; re-assert logo glyphs (init may wipe them)
 
-    ;; Check SPACE to start
+    ;; Keyboard fire — SPACE (matrix line 7, bit 4)
     lda #$7f
     sta $dc00
     lda $dc01
     and #$10
-    beq .ds_start
+    bne .ds_nospace
+    jmp ds_start          ; trampoline: ds_start is out of beq range
 
-    ;; Check joystick fire
+.ds_nospace:
+    ;; M (line 4, bit 4): open the cracked loader — line 4, NOT line 0,
+    ;; because RETURN (the harness's typed CR) lives on line 0 and a
+    ;; per-frame line-0 scan eats the boot typing
+    lda #$ef
+    sta $dc00
+    lda $dc01
+    and #$10
+    beq ds_loader          ; jsr loader_draw → jmp menu_wait
+
+    ;; Joystick fire (port 2, active low)
     lda #$00
     sta $dc02
     lda $dc00
@@ -651,9 +657,16 @@ do_splash:
     txa
     bne .ds_wait          ; loop forever until input
 
-.ds_start:
+ds_start:
+    lda #11
+    sta $d020             ; border back to the game's dark grey
+    lda start_level       ; 0 → 1
+    bne .ds_lv
+    lda #1
+    sta start_level
+.ds_lv:
     lda #0
-    sta init_done         ; force do_init to re-run
+    sta init_done         ; force do_init to re-run (consumes start_level)
     lda #$03
     sta $d015             ; enable sprites 0+1
     lda #GAME_PLAYING
@@ -661,16 +674,29 @@ do_splash:
     rts                   ; return to main_loop — splash never runs again
 ```
 
+`ds_start` is a **global** label: the loader loop (`menu_wait`) is a
+separate local-label scope and needs to reach it — a `.ds_start` local
+under `splash_wait` would be out of scope there.
+
 The `init_done = 0` flag forces `do_init` to re-run on the next frame,
 overwriting the splash screen with the game's 3-zone colour RAM layout.
+`do_init` now reads `start_level` (set by the loader) instead of
+hardcoding level 1:
+```
+level = start_level (0/1 → 1, 2-5 → selected)
+speed_frac = level_speeds[level-1]    (level > 5 clamps to the L5 row)
+score = 0 for level 1, else the level's binary threshold
+        (score+1 = $01/$02/$04/$06 → 256/512/1024/1536)
+$D028 = light red at level 5+, red otherwise
+```
 
 ---
 
 ### Powerup (`pwr_check` + unified invincibility flash)
 
 An invincibility **charge**, not an item: reaching level 3+ sets `pwr_avail`,
-and FIRE (joystick port 2) or LEFT SHIFT spends it for 2 seconds (100 frames)
-of immunity.
+and FIRE (joystick port 2) or SPACE (keyboard fire) spends it for 2 seconds
+(100 frames) of immunity.
 
 **Award** — in `level_update`, right after `inc level`:
 ```asm
@@ -683,8 +709,8 @@ of immunity.
 ```
 
 **Trigger** — `pwr_check` runs every PLAYING frame.  It reads both input
-sources (fire via `$DC02=$00` input mode; LEFT SHIFT via column `$FD`,
-row bit `$80`) and combines them with the `cheat_spc` edge-detection
+sources (fire via `$DC02=$00` input mode; SPACE via matrix line 7, bit 4 —
+the same read the splash uses) and combines them with the §4 edge-detection
 pattern: `pwr_key` is 0 while held, 1 when released, so a charge can
 never auto-fire while the button is held down.
 
@@ -863,7 +889,14 @@ $20C0–$20FF    ship_d.spr   (player down,  pointer $83)
 $2100–$213F    skull.spr    (enemy,        pointer $84)
 $2140–$217F    rock.spr     (asteroids,    pointer $85)
 $2180–$21BF    Radar crosshair inline data (pointer $86)
-$21C0+         Sound preset subroutines
-$3800–$3FFF    ROM charset copy (2 KB)
+$2900–$293F    Splash strings (ds_press / ds_hint / ds_credit)
+$2940–$29FF    Ship-engine sound routine
+$2A00–$31xx    Splash screen + cracked level-select loader (menu code,
+               marker/puts helpers, menu strings at the block tail)
+$3400–$353F    Codegen sprite blocks (ship ×4, skull — pointers $D0-$D4)
+$3540–$37FF    Hand-drawn animation frames + rock (pointer $85-$8F bins)
+$3800–$383F    Rock sprite (pointer $E0)
+$3840–$3881    Radar crosshair sprite (pointer $E1)
+$3900–$3Cxx    Sound preset subroutines (memory.sound_presets anchor)
 $D800–$DBE7    Colour RAM (1 KB nybbles)
 ```

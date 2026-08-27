@@ -2,8 +2,6 @@
 ;; HUD text/numbers handled by behavior DSL (see behaviors.yaml).
 ;; This file: keyboard, enemy AI, collision, state machine, sound.
 
-CHEAT_KEYS = 1        ; 1=enabled (debug), 0=disabled (release)
-
     jmp gstart
 
 ;; --- Variables ---
@@ -35,6 +33,7 @@ dmz_col:    !byte 0
 dmz_row:    !byte 1
 
 level:      !byte 1    ; difficulty level (1-5+)
+start_level: !byte 0   ; level chosen on the splash (0/1 = level 1, 2-5 = selected)
 speed_frac: !byte 128  ; fractional speed (128/256*50 = 25 px/s)
 ast_timer:  !byte 40   ; countdown to next asteroid spawn
 ast_active: !byte 0    ; bits 0-2: which asteroids are active
@@ -52,7 +51,6 @@ ast_next_vy:  !byte 0
 ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X
 ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
 c_saved:    !byte 0    ; saved $D01E for multi-check
-cheat_spc:  !byte $FF  ; previous SPACE state (edged)
 radar_was:  !byte 0     ; radar visibility edge detect
 pulse_ctr:  !byte 0     ; enemy colour pulse timer
 trans_ready: !byte 0    ; flag: trigger transition on next frame
@@ -68,7 +66,7 @@ tl_base:   !byte 0     ; title logo: first glyph code of current letter
 tl_tmp:    !byte 0     ; title logo scratch (6*letter_index)
 pwr_avail: !byte 0     ; invincibility charge available (0/1)
 pwr_flash: !byte 0     ; flash cycle counter during invincibility
-pwr_key:   !byte 0     ; fire/shift edge state (0=held, 1=released)
+pwr_key:   !byte 0     ; fire/space edge state (0=held, 1=released)
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING    = 0
@@ -94,7 +92,6 @@ g0:
     jmp do_transition
 g0a:
     jsr keyboard_read
-    jsr cheat_keys
     jsr anim_update
     jsr engine_do
     ;; Set sprite 0 pointer = $D0 + player_dir + ship_frame * 5
@@ -231,6 +228,59 @@ do_init:
     lda $d012
     eor #$5A
     sta dmz_seed
+
+    ;; Consume the splash level-select: 0/1 → level 1, 2-5 → selected.
+    ;; Start "as if earned": score = the level's binary threshold
+    ;; (256/512/1024/1536 — all below the next level-up threshold, so
+    ;; no instant re-level-up; menu starts award no charge/life, those
+    ;; are level-up transition awards only).
+    lda start_level
+    beq .sl_1
+    cmp #2
+    bcc .sl_1
+    jmp .sl_set
+.sl_1:
+    lda #1
+.sl_set:
+    sta level
+    ;; speed from the difficulty table (levels > 5 clamp to the L5 row,
+    ;; mirroring level_update)
+    ldx level
+    cpx #6
+    bcc .sl_spd
+    ldx #5
+.sl_spd:
+    dex
+    lda level_speeds, x
+    sta speed_frac
+    ;; score hi = threshold: level 2 → $01 (256), else 2*level-4
+    ;; ($02/$04/$06 → 512/1024/1536); level 1 → 0
+    lda level
+    cmp #2
+    bne .sl_sc
+    lda #1
+    bne .sl_sh
+.sl_sc:
+    asl
+    sec
+    sbc #4
+    bcs .sl_sh
+    lda #0
+.sl_sh:
+    sta score+1
+    lda #0
+    sta score
+    ;; Enemy colour matches the level (light red at level 5+, same rule
+    ;; as level_update)
+    lda level
+    cmp #5
+    bcc .sl_col
+    lda #10
+    bne .sl_setc
+.sl_col:
+    lda #2
+.sl_setc:
+    sta $D028
 
     ;; Border + zones + screen fill
     lda #11
@@ -380,11 +430,12 @@ pwr_check:
 .fire_up:
     lda #$ff
     sta $dc02            ; restore port A outputs
-    ;; LEFT SHIFT (keyboard column $FD, row 7 → bit $80)
-    lda #$fd
+    ;; SPACE = keyboard fire (matrix line 7, bit 4 — same read as the
+    ;; splash start check)
+    lda #$7f
     sta $dc00
     lda $dc01
-    and #$80
+    and #$10
     bne .not_pressed
 .pressed:
     lda #$ff
@@ -584,7 +635,7 @@ restart:
     lda #$03
     sta $d015
 
-    ;; Reset level + asteroids
+    ;; Reset level + asteroids (game-over restart always runs at level 1)
     lda #1
     sta level
     lda #128
@@ -2190,289 +2241,6 @@ d_tmp:  !byte 0
 
 ;; -- Rock sprite data (asteroid) --
 ;; ============================================================
-;; Cheat: press SPACE to cycle through levels 1-5
-;; ============================================================
-cheat_keys:
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10             ; 0 = SPACE pressed
-    beq chk_pressed
-    jmp chk_up
-chk_pressed:
-
-    ;; SPACE pressed — was it NOT pressed last frame?
-    lda cheat_spc
-    bne chk_edge           ; was not pressed → edge!
-    rts                    ; holding SPACE, no new edge
-
-chk_edge:
-    ;; Advance level 1→2→3→4→5→1
-    inc level
-    lda level
-    cmp #6
-    bcc chk_set
-    lda #1
-    sta level
-
-chk_set:
-    ldx level
-    dex
-    lda level_speeds, x
-    sta speed_frac
-    ;; score = binary threshold of the new level (lo = 0):
-    ;;   level 2 -> $0100 (256), level 3 -> $0200 (512),
-    ;;   level 4 -> $0400 (1024), level 5 -> $0600 (1536)
-    lda level
-    cmp #2
-    bne .cs_calc
-    lda #1
-    bne .cs_set
-.cs_calc:
-    asl             ; 2*level
-    sec
-    sbc #4          ; -4
-    bcs .cs_set
-    lda #0          ; level 1 (wrap): score 0
-.cs_set:
-    sta score+1
-    lda #0
-    sta score
-    ora score+1
-    beq chk_clr            ; level 1: no chirp
-    jsr chk_sid
-    lda level
-    sta trans_ready      ; flag transition for gstart
-    ;; Enemy colour at level 5
-    lda level
-    cmp #5
-    bcc .chk_red
-    lda #10
-    bne .chk_setc
-.chk_red:
-    lda #2
-.chk_setc:
-    sta $D028
-
-chk_clr:
-    lda #0
-    sta cheat_spc
-    ;; Spawn asteroid if below level max
-    lda level
-    cmp #2
-    bcs .notl1
-    jmp chk_rts
-.notl1:
-    ;; Count active and compare with level max
-    lda ast_active
-    ldy #0
-    lsr
-    bcc .ca
-    iny
-.ca:lsr
-    bcc .cb
-    iny
-.cb:lsr
-    bcc .cc
-    iny
-.cc:
-    lda level
-    cmp #3
-    bcs .ck4p
-    cpy #1              ; levels 2-3: max 1
-    bcc .un_a
-    jmp chk_rts
-.un_a:
-    bcc .go
-.ck4p:
-    cmp #5
-    bcs .ck5p
-    cpy #2              ; level 4: max 2
-    bcc .un_b
-    jmp chk_rts
-.un_b:
-    bcc .go
-.ck5p:
-    cpy #3              ; level 5+: max 3
-    bcc .un_c
-    jmp chk_rts
-.un_c
-.go:
-    ;; Find a free asteroid slot
-    ldx #0
-.fnd:
-    lda ast_active
-    cpx #0
-    bne .f1
-    and #$01
-    beq .fnd_ok
-    bne .fnxt
-.f1:
-    cpx #1
-    bne .f2
-    and #$02
-    beq .fnd_ok
-    bne .fnxt
-.f2:
-    and #$04
-    beq .fnd_ok
-.fnxt:
-    inx
-    cpx #3
-    bne .fnd
-    jmp chk_rts          ; all slots full
-
-.fnd_ok:
-    ;; Shuffle with raster for variety
-    lda $d012
-    lsr
-    bcc .ts1
-    jsr lfsr_tick
-.ts1:
-    lsr
-    bcc .ts2
-    jsr lfsr_tick
-.ts2:
-    ;; Pick random angle
-    jsr lfsr_tick
-    and #$0F             ; 16 angles in full table
-    asl
-    tay
-    lda ast_angles, y
-    sta ast_dx, x
-    lda ast_angles+1, y
-    sta ast_dy, x
-    ;; Spawn edge from stored velocity
-    lda ast_dy, x
-    bmi bot0              ; dy < 0 → bottom
-    beq chkdx0            ; dy == 0 → left/right
-    jmp top0              ; dy > 0 → top
-chkdx0:
-    lda ast_dx, x
-    bmi rt0               ; dx < 0 → right
-    jmp lt0               ; dx >= 0 → left
-bot0:
-    ;; Bottom spawn
-    jsr lfsr_tick
-    and #$7F
-    adc #40
-    sta ast_x, x
-    lda #210
-    sta ast_y, x
-    jmp .fv_reg
-rt0:
-    ;; Right edge
-    lda #255
-    sta ast_x, x
-    jsr lfsr_tick
-    and #$7F
-    adc #50
-    cmp #230
-    bcc .tby
-    lda #229
-.tby:
-    sta ast_y, x
-    jmp .fv_reg
-top0:
-    ;; Top spawn
-    jsr lfsr_tick
-    and #$7F
-    adc #40
-    sta ast_x, x
-    lda #110
-    sta ast_y, x
-    jmp .fv_reg
-lt0:
-    ;; Left edge
-    lda #24
-    sta ast_x, x
-    jsr lfsr_tick
-    and #$7F
-    adc #50
-    cmp #230
-    bcc .tly
-    lda #229
-.tly:
-    sta ast_y, x
-.fv_reg:
-    ;; Fix VIC registers for slot
-    cpx #0
-    bne .fx1
-    lda ast_x
-    sta $d004
-    lda ast_y
-    sta $d005
-    jmp .fact
-.fx1:
-    cpx #1
-    bne .fx2
-    lda ast_x, x
-    sta $d006
-    lda ast_y, x
-    sta $d007
-    jmp .fact
-.fx2:
-    lda ast_x, x
-    sta $d008
-    lda ast_y, x
-    sta $d009
-
-.fact:
-    ;; Set the active bit for this slot
-    lda ast_active
-    cpx #0
-    bne .fa1
-    ora #$01
-    bne .fas
-.fa1:
-    cpx #1
-    bne .fa2
-    ora #$02
-    bne .fas
-.fa2:
-    ora #$04
-.fas:
-    sta ast_active
-    ;; Enable sprite in $d015
-    lda $d015
-    cpx #0
-    bne .fd1
-    ora #$04
-    bne .fds
-.fd1:
-    cpx #1
-    bne .fd2
-    ora #$08
-    bne .fds
-.fd2:
-    ora #$10
-.fds:
-    sta $d015
-    ;; Clear MSB for this slot
-    lda ast_msb
-    cpx #0
-    bne .fm1
-    and #$FE
-    bne .fms
-.fm1:
-    cpx #1
-    bne .fm2
-    and #$FD
-    bne .fms
-.fm2:
-    and #$FB
-.fms:
-    sta ast_msb
-    ;; Quick respawn timer
-    lda #1
-    sta ast_timer
-chk_rts:
-    rts
-
-chk_up:
-    lda #$10
-    sta cheat_spc          ; remember: SPACE not pressed
-    rts
 level_speeds: !byte 128, 128, 128, 154, 179     ; px/s: 25, 25, 25, 30, 35
 level_spawns: !byte 40, 40, 30, 25, 24            ; asteroid spawn interval
 
@@ -2560,6 +2328,7 @@ chk_sid:
 ;; $2000 boundary when the code grew and got overwritten by ship_r.spr.)
 * = $2900
 ds_press:  !scr "press fire to play", 0
+ds_hint:   !scr "m: level select", 0
 ds_credit: !scr "gpowerf 2026", 0
 
 ;; ============================================================
@@ -2650,12 +2419,28 @@ splash_wait:
     ;; custom glyphs; one frame later this restores them.
     jsr title_load
 
-    ;; Check SPACE to start
+    ;; Keyboard fire — SPACE (matrix line 7, bit 4) starts at level 1
+    ;; (NO digit detection here: the harness itself types "sys2061\r"
+    ;; at boot, so a splash-level digit scan would snatch the "1" of
+    ;; "2061" and auto-start the game while keys are still trickling
+    ;; in.  Level selection is F1 → loader only.)
     lda #$7f
     sta $dc00
     lda $dc01
     and #$10             ; 0 = SPACE pressed
-    beq .ds_start
+    bne .ds_nospace
+    jmp ds_start
+.ds_nospace:
+
+    ;; M (matrix line 4, bit 4) — level-select loader.  Deliberately NOT
+    ;; F1: line 0 is RETURN's line and the harness types "sys2061\r" at
+    ;; boot — a per-frame line-0 scan collides with that CR delivery.
+    ;; Line 4 carries no keystroke of the boot typing.
+    lda #$ef
+    sta $dc00
+    lda $dc01
+    and #$10
+    beq .ds_loader
 
     ;; Check joystick port 2 fire
     lda #$00
@@ -2666,16 +2451,34 @@ splash_wait:
     lda #$ff
     sta $dc02            ; restore keyboard mode
     txa
-    beq .ds_start        ; fire pressed → start
+    beq ds_start         ; fire pressed → start
     ;; Testability hook: if state was changed externally (VICE monitor
     ;; tests poke state), exit the splash loop.  Inert during real play —
     ;; nothing in the game itself writes state while splashing.
     lda state
     cmp #GAME_SPLASH
-    bne .ds_start
+    bne ds_start
     jmp splash_wait
 
-.ds_start:
+.ds_loader:
+    ;; Enter the cracked menu: clears start_level so fire/SPACE from the
+    ;; menu-back path means "level 1", and draws the loader screen.
+    lda #0
+    sta start_level
+    jsr loader_draw
+    jmp menu_wait
+
+ds_start:
+    ;; Fire/space start (level 1; start_level is set by the level-select
+    ;; plumbing — loader UI lands in a follow-up change).  Border back
+    ;; to the dark grey of the game.
+    lda #11
+    sta $d020
+    lda start_level
+    bne .ds_lv
+    lda #1
+    sta start_level
+.ds_lv:
     lda #0
     sta init_done         ; force do_init to re-run (overwrites splash with game screen)
     lda #$03             ; enable sprites 0+1
@@ -2683,6 +2486,352 @@ splash_wait:
     lda #GAME_PLAYING
     sta state
 .ds_rts:
+    rts
+
+;; ============================================================
+;; Cracked-menu level-select loader (M from splash)
+;; ============================================================
+;; Classic cracked-loader screen: white border, black screen,
+;; "start level 1-5" list.  Digits 1-5 jump straight to that level,
+;; joystick up/down (or fire/space) confirms the highlighted row,
+;; F1 backs out to the splash.  Strings are LOWERCASE !scr — this
+;; game's charset renders lowercase-typed text as caps; UPPERCASE
+;; typed text lands as raw ASCII and renders as graphics garbage.
+menu_wait:
+    lda frame_ready
+    beq menu_wait
+    lda #0
+    sta frame_ready
+
+    ;; digits 1-5 (lines 7/7/1/1/2, bits 0/3/0/3/0)
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$01
+    bne .m_k2
+    lda #1
+    jmp .m_pick
+.m_k2:
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$08
+    bne .m_k3
+    lda #2
+    jmp .m_pick
+.m_k3:
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$01
+    bne .m_k4
+    lda #3
+    jmp .m_pick
+.m_k4:
+    lda #$fd
+    sta $dc00
+    lda $dc01
+    and #$08
+    bne .m_k5
+    lda #4
+    jmp .m_pick
+.m_k5:
+    lda #$fb
+    sta $dc00
+    lda $dc01
+    and #$01
+    bne .m_fl
+    lda #5
+.m_pick:
+    sta start_level
+    jmp ds_start
+
+.m_fl:
+    ;; F1 (line 0, bit 4) back to the splash — post-boot, so a line-0
+    ;; scan here is safe (the boot typing is long finished)
+    lda #$fe
+    sta $dc00
+    lda $dc01
+    and #$10
+    bne .m_noF1
+    jmp .m_back
+.m_noF1:
+    ;; Joystick port 2 (active low → invert) for up/down/fire.
+    ;; Edge detection against menu_prev: floating/unplugged lines can
+    ;; read low at random, and a stuck line would otherwise confirm
+    ;; instantly — only NEWLY pressed bits act, and the armed first
+    ;; frame absorbs whatever the lines idle at.
+    lda #$00
+    sta $dc02
+    lda $dc00
+    eor #$ff
+    sta menu_joy
+    lda #$ff
+    sta $dc02
+    lda menu_armed
+    beq .m_arm
+    ;; edges = new AND NOT prev
+    lda menu_prev
+    eor #$ff
+    and menu_joy
+    sta menu_joy          ; menu_joy now = newly pressed bits only
+    ;; Down edge (bit 1): highlight +1 (max 4)
+    lda menu_joy
+    and #$02
+    beq .m_nodn
+    lda menu_sel
+    cmp #4
+    bcs .m_nodn
+    inc menu_sel
+    jmp .m_draw
+.m_nodn:
+    ;; Up edge (bit 0): highlight -1 (min 0)
+    lda menu_joy
+    and #$01
+    beq .m_noup
+    lda menu_sel
+    beq .m_noup
+    dec menu_sel
+    jmp .m_draw
+.m_noup:
+    ;; Fire edge (bit 4) confirms the highlighted level
+    lda menu_joy
+    and #$10
+    beq .m_noconf
+    jmp .m_conf
+.m_noconf:
+    jmp .m_spc
+.m_arm:
+    lda menu_joy
+    sta menu_prev         ; sample the idle state
+    lda #1
+    sta menu_armed
+    jmp .m_spc
+.m_spc:
+    ;; SPACE = keyboard fire: confirms too (keyboard lines are driven,
+    ;; no floating-line issue — direct read, no edge needed)
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10
+    beq .m_conf
+    jmp menu_wait
+.m_conf:
+    lda menu_joy
+    sta menu_prev
+    lda menu_sel
+    clc
+    adc #1
+    sta start_level
+    jmp ds_start
+.m_draw:
+    lda menu_joy
+    sta menu_prev
+    jsr menu_marker
+    jmp menu_wait
+.m_back:
+    lda #11
+    sta $d020
+    jsr draw_splash
+    jmp splash_wait
+
+;; ============================================================
+;; loader_draw — the crack-style screen, drawn once on entry.
+;; Text via ROM-charset screen codes; strings are lowercase-typed
+;; (see note above).  ZP: $57/$58 via d_mul40 (the splash_bars
+;; pattern, proven under the raster IRQ) + $02/$03 for the text
+;; pointer (same usage as do_init's zone painter).
+;; ============================================================
+loader_draw:
+    lda #0
+    sta menu_sel
+    sta menu_armed        ; arm: first menu frame only samples the ports
+    lda #1
+    sta $d020             ; white border, classic cracker style
+    ;; screen → spaces, colour RAM → black
+    ldx #0
+    lda #$20
+.m_fill:
+    sta $0400, x
+    sta $0500, x
+    sta $0600, x
+    sta $06e8, x
+    inx
+    bne .m_fill
+    ldx #0
+    lda #0
+.m_cfill:
+    sta $d800, x
+    sta $d900, x
+    sta $da00, x
+    sta $dae8, x
+    inx
+    bne .m_cfill
+    ;; header row 5 col 8, white
+    lda #<menu_hd
+    sta menu_ptr
+    lda #>menu_hd
+    sta menu_ptr+1
+    lda #5
+    sta menu_row
+    lda #8
+    sta menu_col
+    lda #1
+    sta menu_colr
+    jsr menu_puts
+    ;; items 1-5: rows 8-12, col 13, green
+    lda #<menu_i1
+    sta menu_ptr
+    lda #>menu_i1
+    sta menu_ptr+1
+    lda #8
+    sta menu_row
+    lda #13
+    sta menu_col
+    lda #5
+    sta menu_colr
+    jsr menu_puts
+    lda #<menu_i2
+    sta menu_ptr
+    lda #>menu_i2
+    sta menu_ptr+1
+    lda #9
+    sta menu_row
+    jsr menu_puts
+    lda #<menu_i3
+    sta menu_ptr
+    lda #>menu_i3
+    sta menu_ptr+1
+    lda #10
+    sta menu_row
+    jsr menu_puts
+    lda #<menu_i4
+    sta menu_ptr
+    lda #>menu_i4
+    sta menu_ptr+1
+    lda #11
+    sta menu_row
+    jsr menu_puts
+    lda #<menu_i5
+    sta menu_ptr
+    lda #>menu_i5
+    sta menu_ptr+1
+    lda #12
+    sta menu_row
+    jsr menu_puts
+    ;; footer row 19 col 2, white
+    lda #<menu_ft
+    sta menu_ptr
+    lda #>menu_ft
+    sta menu_ptr+1
+    lda #19
+    sta menu_row
+    lda #2
+    sta menu_col
+    lda #1
+    sta menu_colr
+    jsr menu_puts
+    ;; fall through to marker (highlights row 1)
+menu_marker:
+    ;; ">" at col 11 next to the selected row; spaces elsewhere.
+    ;; All 5 rows rewritten per pass.  ZP: $57/$58 only.
+    lda #8
+    sta menu_row
+    ldx #0
+.mk_row:
+    lda menu_row
+    jsr d_mul40           ; $57/$58 = row * 40
+    lda $57
+    clc
+    adc #<($0400+11)
+    sta $57
+    lda $58
+    adc #>($0400+11)
+    sta $58                ; marker cell, screen RAM
+    ldy #0
+    cpx menu_sel
+    bne .mk_off
+    lda #$3e              ; ">"
+    sta ($57), y
+    lda $57
+    clc
+    adc #<$d400
+    sta $57
+    lda $58
+    adc #>$d400
+    sta $58                ; marker cell, colour RAM
+    lda #1
+    sta ($57), y
+    jmp .mk_next
+.mk_off:
+    lda #$20              ; space
+    sta ($57), y
+    lda $57
+    clc
+    adc #<$d400
+    sta $57
+    lda $58
+    adc #>$d400
+    sta $58
+    lda #0
+    sta ($57), y
+.mk_next:
+    inc menu_row
+    inx
+    cpx #5
+    bne .mk_row
+    rts
+
+;; ============================================================
+;; menu_puts — draw a null-terminated screen-code string.
+;; IN: menu_ptr (lo/hi), menu_row (0-24), menu_col (0-39), menu_colr.
+;; Text pass then colour pass (colour = screen + $D400).
+;; ============================================================
+menu_puts:
+    lda menu_ptr
+    sta $02
+    lda menu_ptr+1
+    sta $03                 ; $02/$03 = text address
+    lda menu_row
+    jsr d_mul40             ; $57/$58 = row * 40
+    lda $57
+    clc
+    adc #<$0400
+    sta $57
+    lda $58
+    adc #>$0400
+    sta $58
+    lda $57
+    clc
+    adc menu_col
+    sta $57
+    lda $58
+    adc #0
+    sta $58                 ; $57/$58 = first screen cell
+    ldy #0
+.mp_l:
+    lda ($02), y
+    beq .mp_c
+    sta ($57), y
+    iny
+    bne .mp_l
+.mp_c:
+    lda $57
+    clc
+    adc #<$d400
+    sta $57
+    lda $58
+    adc #>$d400
+    sta $58                 ; $57/$58 = first colour cell
+    ldy #0
+.mp_c2:
+    lda ($02), y
+    beq .mp_d
+    lda menu_colr
+    sta ($57), y
+    iny
+    bne .mp_c2
+.mp_d:
     rts
 
 ;; ============================================================
@@ -2736,6 +2885,17 @@ splash_bars:
 
 spl_tmr:  !byte 1        ; countdown to next refresh
 spl_row:  !byte 0        ; current row index
+
+;; --- Cracked-menu loader state ---
+menu_sel:  !byte 0       ; highlighted row 0-4 (level = sel+1)
+menu_row:  !byte 0       ; text row for menu_puts
+menu_col:  !byte 0       ; text column for menu_puts
+menu_colr: !byte 0       ; text colour for menu_puts
+menu_ptr:  !byte 0, 0    ; text address for menu_puts (lo, hi)
+menu_joy:  !byte 0       ; active-high port 2 snapshot
+menu_prev: !byte 0       ; previous-frame joy state (edge detection)
+menu_armed: !byte 0      ; 0 = next frame only samples (floating-line guard)
+
 
 draw_splash:
     ;; Fill screen: solid blocks with black foreground (columns 6-33
@@ -2829,12 +2989,24 @@ draw_splash:
     ldx #0
 .s_slp:
     lda ds_press, x
-    beq .s_cred
+    beq .s_hint
     sta $0400+14*40+11, x
     lda #15
     sta $d800+14*40+11, x
     inx
     bne .s_slp
+
+.s_hint:
+    ;; loader hint in light gray at row 16, col 11
+    ldx #0
+.s_hp:
+    lda ds_hint, x
+    beq .s_cred
+    sta $0400+16*40+11, x
+    lda #15
+    sta $d800+16*40+11, x
+    inx
+    bne .s_hp
 
 .s_cred:
     ;; Credit in light gray at row 22, col 14
@@ -3010,3 +3182,17 @@ boom_tick:
 ;; the charset copy at $3800 + $B0*8 = $3D80 once per splash draw.
 title_glyphs: !bin "assets/title_font.bin"
 title_text:   !byte 1,2,3,4,0,3,4,2,5,0,3,6,3,4,7,8   ; LAST STAR SYSTEM
+
+;; cracked-loader menu text — LOWERCASE !scr: this game's charset
+;; renders lowercase-typed text as caps; UPPERCASE-typed text lands as
+;; raw ASCII and displays as graphics garbage (root cause of the first
+;; cut's garbled menu)
+menu_hd:  !scr "***** start level *****", 0
+menu_i1:  !scr "1 .. start at level 1", 0
+menu_i2:  !scr "2 .. start at level 2", 0
+menu_i3:  !scr "3 .. start at level 3", 0
+menu_i4:  !scr "4 .. start at level 4", 0
+menu_i5:  !scr "5 .. start at level 5", 0
+menu_ft:  !scr "fire/space play  1-5 jump  f1 back", 0
+
+
