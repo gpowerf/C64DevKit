@@ -17,7 +17,48 @@ hashes link each entry back to the git record.
 
 ---
 
-## 2026-08-26 · radar/entries: correct sprite-Y map + no-marker regression
+## 2026-08-28 · asteroids: entry cells realigned (top 60, bottom 228, right X=224)
+
+- **What:** the asteroid top entry (marker + rock spawn) moved from
+  sprite-Y 62 to **60** — row 1 (58-66) on the corrected sprite-Y map,
+  flush edge-to-edge with the HUD row; the bottom entry moved from 234
+  to **228** — row 22 (226-234), 6 px above its old baseline so it
+  clears the bottom text-row edge; the right entry moved from X=230 to
+  **224** — 6 px left of the DMZ threshold.  Both paths (`ast_spawn` and
+  `ast_preview`) changed together so marker and rock still share one
+  exact cell; tests/docs synced.
+- **Why:** the markers rendered off the natural grid cells the player
+  perceives — top sat 2 px low against the HUD, bottom 4 px low against
+  the last text row.  Alignment fix, no behaviour change.
+- **Commits:** (this change set)
+
+---
+
+## 2026-08-28 · asteroids: one rock per marker (warning consumption fix)
+
+- **Bug:** from the first level with asteroids onwards, several rocks
+  left from a single radar marker on every level.  Root cause: the
+  marker-linger change (3a25a78) stopped `ast_spawn` from clearing the
+  pre-rolled warning and moved the re-pre-roll into the spawn path —
+  but `ast_pdly` ticked **once per spawn** instead of once per frame,
+  and the pre-rolled cell was never marked used.  Result: up to 8
+  spawns reused the same `ast_warn_x/y` + `ast_next_vx/vy`, so rocks
+  (and at L4+ whole clusters) poured out of one cell at 24–40-frame
+  intervals.
+- **Fix (`routines/game_logic.acme`):** the warning is now CONSUMED at
+  spawn (`ast_warn_dir = 255` + `ast_pdly = 8` claim); `ast_update`
+  decrements the linger **per frame** and re-pre-rolls the next
+  warning when it expires; `radar_do` keeps the crosshair on the
+  consumed cell while the rock crosses it (linger-aware visibility);
+  `restart()` and the level transition reset `ast_pdly` with the warn
+  state.  Every pre-roll feeds exactly one spawn.
+- **Spec/tests synced:** `spec/behaviors.yaml` (variable entry +
+  spawn/preview/radar docs), `spec/tests.yaml` (3 new regression
+  tests: consumption, no-reuse across spawns, per-frame linger tick),
+  `ASSEMBLY.md` (layout + asteroid system docs).
+- **Commits:** (this change set)
+
+---
 
 - **Sprite-Y map corrected (the actual root cause of every round's
   complaints):** the C64 text window spans sprite-Y **50..250** when

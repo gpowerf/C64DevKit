@@ -651,6 +651,7 @@ restart:
     lda #0
     sta ast_warn_x
     sta ast_warn_y
+    sta ast_pdly
     lda #0
     sta radar_was
     lda #0
@@ -1209,6 +1210,8 @@ do_transition:
     sta ast_timer
     lda #255
     sta ast_warn_dir
+    lda #0
+    sta ast_pdly
     ;; invincibility after transition
     lda #30
     sta hit_timer
@@ -1431,14 +1434,15 @@ ast_spawn:
     sta ast_tmp2
     lda ast_warn_y
     sta ast_tmp
-    ;; Keep the warning displayed on this cell until the rock crosses
-    ;; it: claim it with the linger counter (ast_preview fires when the
-    ;; counter expires — the marker doesn't teleport at spawn time).
-    lda ast_pdly
-    bne .no_claim
+    ;; Consume the warning: it feeds exactly ONE spawn.  The marker
+    ;; lingers on this cell (ast_pdly = 8, ticked once per frame by
+    ;; ast_update) while the rock crosses it — no teleport at spawn
+    ;; time and no reuse of the cell by a later spawn.  (The old
+    ;; non-consuming version let up to 8 rocks leave from one marker.)
+    lda #255
+    sta ast_warn_dir
     lda #8
     sta ast_pdly
-.no_claim:
     jmp .reset_x
 .random_pick:
 
@@ -1462,8 +1466,8 @@ ast_spawn:
     cmp #$08
     bcs .f_2
 
-    ;; Bottom: Y=234 (row 23), random X
-    lda #234
+    ;; Bottom: Y=228 (row 22), random X
+    lda #228
     sta ast_tmp          ; Y position
     jsr lfsr_tick
     and #$7F
@@ -1474,8 +1478,8 @@ ast_spawn:
     cmp #$10
     bcs .f_3
 
-    ;; Top: Y=62 (the marker cell), random X
-    lda #62
+    ;; Top: Y=60 (the marker cell), random X
+    lda #60
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1486,8 +1490,8 @@ ast_spawn:
     cmp #$18
     bcs .f_4
 
-    ;; Right: X=230 (DMZ threshold), random Y 50-190
-    lda #230
+    ;; Right: X=224 (6 px left of the DMZ threshold), random Y 50-190
+    lda #224
     sta ast_tmp2
     jsr lfsr_tick
     and #$7F
@@ -1695,11 +1699,12 @@ ast_preview:
     cmp #$08
     bcs .ap_p2
 
-    ;; BOTTOM: Y=234 — row 23, at the bottom of the text window
-    ;; (row 23 = sprite-Y 234..242); marker and rock share this cell
+    ;; BOTTOM: Y=228 — row 22 (sprite-Y 226-234), 6 px up from the old
+    ;; 234 baseline so the marker clears the bottom text row edge;
+    ;; marker and rock share this cell
     lda #0
     sta ast_warn_dir
-    lda #234
+    lda #228
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1710,11 +1715,11 @@ ast_preview:
     cmp #$10
     bcs .ap_p3
 
-    ;; TOP: Y=62 — row 1, right below the HUD row (text window spans
-    ;; sprite-Y 50..250); marker and rock share this exact cell
+    ;; TOP: Y=60 — row 1 (text window spans sprite-Y 50..250, so
+    ;; row N = 50+8N; row 0 = HUD); marker and rock share this cell
     lda #1
     sta ast_warn_dir
-    lda #62
+    lda #60
     sta ast_warn_y
     jsr lfsr_tick
     and #$7F
@@ -1725,10 +1730,11 @@ ast_preview:
     cmp #$18
     bcs .ap_p4
 
-    ;; RIGHT: X=230 — at the DMZ threshold, readable; random Y 50-190
+    ;; RIGHT: X=224 — 6 px left of the DMZ threshold, readable;
+    ;; random Y 50-190
     lda #2
     sta ast_warn_dir
-    lda #230
+    lda #224
     sta ast_warn_x
     jsr lfsr_tick
     and #$7F
@@ -1761,6 +1767,18 @@ ast_preview:
     rts
 
 ast_update:
+    ;; Marker linger: one tick per frame, NOT per spawn.  A spawn
+    ;; consumes the warning and sets ast_pdly = 8; while it ticks the
+    ;; marker stays on the consumed cell, then ast_preview pulls the
+    ;; next warning.  (Ticking once per spawn instead left the same
+    ;; pre-rolled cell live for up to 8 spawns: several rocks left from
+    ;; one marker on every level with asteroids.)
+    lda ast_pdly
+    beq .ln_done
+    dec ast_pdly
+    bne .ln_done
+    jsr ast_preview
+.ln_done:
     ;; Decrement spawn timer
     lda ast_timer
     beq .spwn
@@ -1768,11 +1786,13 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
-    lda ast_pdly        ;; next warning: linger then pre-roll
-    beq .pd_prev        ;; nothing claimed → pre-roll the next now
-    dec ast_pdly
+    ;; Fresh start / respawn: no warning pending, nothing lingering →
+    ;; pre-roll now so the marker leads the next rock.
+    lda ast_warn_dir
+    cmp #255
     bne .pd_d
-.pd_prev:
+    lda ast_pdly
+    bne .pd_d
     jsr ast_preview
 .pd_d:
     ldx level
@@ -2085,8 +2105,9 @@ radar_do:
 
     lda ast_warn_dir
     cmp #255
-    beq .r_hide_w
+    beq .r_chk_linger
 
+.r_go_ok:
     ;; edge: was hidden, now visible → radar ping
     lda radar_was
     bne .r_go
@@ -2096,9 +2117,9 @@ radar_do:
 .r_go:
 
     ;; Marker = the exact warn cell (warn_x, warn_y) — the preview picks
-    ;; readable, on-screen entry points (bottom 210 = lower border, top
-    ;; 21 = just under the HUD, sides 24/230 × Y 50-190), so no clamps
-    ;; are needed here; the marker IS where the rock will appear.
+    ;; readable, on-screen entry points (bottom 228, top 60, sides
+    ;; 24/224 × Y 62-226), so no clamps are needed here; the marker IS
+    ;; where the rock will appear.
     lda ast_warn_x
     sta $d00a
     lda ast_warn_y
@@ -2109,6 +2130,13 @@ radar_do:
     ora #$20
     sta $d015
     rts
+
+.r_chk_linger:
+    ;; Warning consumed by a spawn: keep the marker on that cell while
+    ;; the linger ticks (the rock is crossing it) — else hide.
+    lda ast_pdly
+    beq .r_hide_w
+    jmp .r_go_ok
 
 .r_hide_w:
     lda #0

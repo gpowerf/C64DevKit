@@ -26,17 +26,20 @@ Lines 958–1051 collision_do:       ← player–enemy collision
 Lines 1052–1176 do_transition:     ← "LEVEL X" screen (1–2 digit display)
 Lines 1177–1191 sound_tick:        ← legacy sound timer
 Lines 1192–1242 level_update:      ← level thresholds (every 256 pts, uncapped counter)
-Lines 1243–1255 ast_angles:        ← 32-entry spawn direction table
-Lines 1256–1489 ast_spawn:         ← asteroid spawning
-Lines 1490–1583 ast_preview:       ← next-spawn position pre-roll
-Lines 1584–1755 ast_update:        ← asteroid movement + despawn
-Lines 1756–1887 ast_collision:     ← player–asteroid collision
-Lines 1888–1960 radar_do:          ← radar warning indicator
+Lines 1297–1366 level_update:      ← level thresholds (every 256 pts, uncapped counter)
+Lines 1367–1379 ast_angles:        ← 32-entry spawn direction table
+Lines 1380–1662 ast_spawn:         ← asteroid spawning (consumes one pre-rolled warning)
+Lines 1663–1668 ast_tmp:           ← spawn scratch vars
+Lines 1669–1766 ast_preview:       ← next-spawn position pre-roll
+Lines 1767–1965 ast_update:        ← marker-linger tick, spawn timer, movement + despawn
+Lines 1966–2097 ast_collision:     ← player–asteroid collision
+Lines 2098–2151 radar_do:          ← radar warning indicator (linger-aware)
+Lines 2152–2163 lfsr_tick:         ← Galois LFSR RNG
 Lines 1961–1972 lfsr_tick:         ← Galois LFSR RNG
-Lines 1973–2001 dmz_init:          ← DMZ colour RAM init fill
-Lines 2002–2038 dmz_do:            ← DMZ per-frame static refresh
-Lines 2039–2075 d_mul40:           ← row × 40 multiply
-Lines 2076–2330 do_splash / draw_splash / splash_bars  ← splash screen
+Lines 2164–2201 dmz_init:          ← DMZ colour RAM init fill
+Lines 2202–2238 dmz_do:            ← DMZ per-frame static refresh
+Lines 2239–2275 d_mul40:           ← row × 40 multiply
+Lines 2276–2330 do_splash / draw_splash / splash_bars  ← splash screen
 Lines 2330–2740 menu_wait / loader_draw / menu_puts / menu_marker ← cracked level-select loader
 Lines 2741+     * = $2140 → animation frame + rock + radar sprite data
 Lines 2220     * = $2180 → radar sprite data
@@ -510,11 +513,13 @@ then LFSR for per-cell variation.
     sta ast_vy
 ```
 
-**Edge determination** from velocity sign:
+**Edge determination** is grouped by ANGLE GROUP INDEX (0-7 bottom,
+8-15 top, 16-23 right, 24-31 left), so `ast_spawn` and `ast_preview`
+share ONE rule and a pre-rolled angle always warns on the edge it
+spawns from.  Example (bottom edge):
+
 ```asm
-    lda ast_vy
-    bpl .not_bottom       ; dy ≥ 0 → not bottom
-    lda #210              ; bottom edge Y
+    lda #228              ; bottom edge Y (row 22)
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -544,8 +549,27 @@ Right-edge despawn happens via Y bounds (dy ≠ 0) or X underflow
 **Preview/radar**: `ast_preview` pre-computes the NEXT asteroid's spawn
 position and stores it in `ast_warn_x`, `ast_warn_y`, `ast_warn_dir`.
 The radar sprite reads these to show the warning indicator.
-On actual spawn, `ast_spawn` uses the pre-rolled values if `ast_warn_dir != 255`,
-then clears it.  This decouples the visual warning from the spawn timing.
+
+**Warning consumption (one rock per marker)**: on spawn, `ast_spawn`
+uses the pre-rolled values if `ast_warn_dir != 255`, then immediately
+CONSUMES the warning (`ast_warn_dir = 255`) and claims the marker
+linger (`ast_pdly = 8`).  `ast_update` ticks the linger once per frame
+— never once per spawn — and re-pre-rolls a fresh warning when it hits
+0.  `radar_do` keeps the crosshair on the consumed cell while the rock
+crosses it, then it jumps to the next cell.  This decouples the
+visual warning from the spawn timing AND ensures each pre-roll feeds
+exactly one spawn: rocks can never share a marker cell or velocity.
+(Earlier revisions left the pre-roll in place and ticked the linger
+per spawn — up to 8 rocks poured out of the same marker on every
+level with asteroids.)
+
+Example (consume + claim in `ast_spawn`):
+```asm
+    lda #255
+    sta ast_warn_dir      ; warn once used — never reused
+    lda #8
+    sta ast_pdly          ; marker lingers on this cell 8 frames
+```
 
 ---
 

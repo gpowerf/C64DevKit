@@ -61,10 +61,16 @@
 #   ast_vx       1 B    —       Temp: spawn X velocity
 #   ast_vy       1 B    —       Temp: spawn Y velocity
 #   ast_warn_dir 1 B    255     Pre-rolled spawn direction: 0=bot 1=top 2=right 3=left
+#                           (255 = none; set to 255 again when the pre-roll
+#                           is consumed by a spawn)
 #   ast_next_vx  1 B    —       Pre-rolled spawn X velocity
 #   ast_next_vy  1 B    —       Pre-rolled spawn Y velocity
 #   ast_warn_x   1 B    —       Pre-rolled spawn X position
 #   ast_warn_y   1 B    —       Pre-rolled spawn Y position
+#   ast_pdly     1 B    0       Marker linger countdown (frames): >0 means the
+#                           radar still shows the consumed marker cell while
+#                           the rock crosses it; ast_update decrements it every
+#                           frame and re-pre-rolls the next warning at 0
 #   start_level  1 B    0       Level chosen on the splash (loader/M path);
 #                           consumed by do_init (0/1 = level 1, 2-5 = picked)
 #   c_saved      1 B    0       Saved $D01E value for multi-check in same frame
@@ -589,9 +595,15 @@ behaviors:
 #      L2–L3: max 1  |  L4: max 2  |  L5+: max 3
 #    If at or above max, shuffle LFSR and return.
 #
-# 3. If ast_warn_dir != 255 (pre-rolled):
-#      Use pre-rolled velocity and position, clear warn_dir.
-#    Else (random pick):
+# 3. If ast_warn_dir != 255 (pre-rolled warning pending):
+#      Use pre-rolled velocity and position; the warning is CONSUMED
+#      (ast_warn_dir → 255) and the marker lingers (ast_pdly = 8) so the
+#      radar keeps showing the arrival cell while the rock crosses it.
+#      Every pre-roll feeds at most ONE spawn — a rock can never reuse
+#      a previous rock's marker cell or velocity.  (An earlier version
+#      left the pre-roll in place and ticked the linger once per spawn,
+#      so up to 8 rocks poured out of the same marker on every level.)
+#    Else (no pre-roll — fresh level / after respawn):
 #      Read CIA timer ($DC04) XOR raster ($D012), mask to $1F, ×2
 #      → index into ast_angles table.
 #
@@ -607,11 +619,23 @@ behaviors:
 # 6. Store position, velocity, set active bit, write VIC registers,
 #    clear MSB for this slot.
 #
-# 7. Shuffle LFSR, call ast_preview for next warning, return.
+# 7. Shuffle LFSR, return — the next warning is pre-rolled by
+#    ast_update when the marker linger (ast_pdly, 8 frames) expires.
 #
 # 8. Reset spawn timer from level_spawns table.
 #
 # --- Movement (ast_update, runs every frame) ---
+#
+# Spawn timer: ast_timer counts down each frame; at 0 ast_spawn runs
+# (see above) and the timer resets from level_spawns.  After the spawn,
+# if no warning is pending AND no marker is lingering (ast_warn_dir
+# == 255 && ast_pdly == 0 — fresh level start or respawn), ast_preview
+# runs immediately so the radar shows the next rock's cell right away.
+#
+# Marker linger: ast_pdly > 0 → decrement each frame; at 0 call
+# ast_preview (moves the marker to the next rock's cell).  Tick runs
+# once per FRAME — never once per spawn — so the marker sits on the
+# arrival cell for exactly ~8 frames while the rock crosses it.
 #
 # For each active asteroid slot (0→2):
 #   Y:  ast_y += ast_dy   (signed 8-bit add, wraps at boundaries)
@@ -639,9 +663,12 @@ behaviors:
 #
 # --- Preview / radar warning (ast_preview) ---
 #
-# Called after each spawn, and at level 2 init.
 # Pre-rolls the NEXT asteroid's direction and spawn position so the
-# radar sprite can show it in advance.
+# radar sprite can show it in advance.  It is called by ast_update
+# when the marker linger (ast_pdly) expires — i.e. ~8 frames after the
+# previous rock spawned FROM the marker cell and started crossing it —
+# and by level_update when level 2 is reached.  Never called more than
+# once per consumption: each pre-roll feeds exactly one spawn.
 #
 # 1. Only runs if state == PLAYING.
 # 2. Pick random angle (CIA XOR raster, same method as spawn), then
@@ -656,8 +683,12 @@ behaviors:
 #    cell AND the marker position — positions computed on the CORRECT
 #    sprite-Y map: the C64 text window spans sprite-Y 50..250 (row 0 =
 #    50-58 … row 24 = 242-250), so a row N entry lives at Y = 50+8N.
-#    Entries: BOTTOM Y=234 (row 23), TOP Y=62 (row 1, just below the
-#    HUD), LEFT X=24, RIGHT X=230 (at the DMZ threshold); side entries
+#    Entries: BOTTOM Y=228 (row 22 — sprite-Y 226-234, 6 px up from
+#    the old 234 baseline so the marker clears the bottom text row
+#    edge), TOP Y=60 (row 1 = sprite-Y 58-66;
+#    moved up 2 px from 62 so the marker reads as one clean grid cell
+#    edge-to-edge with the HUD row), LEFT X=24, RIGHT X=224
+#    (6 px left of the DMZ threshold); side entries
 #    randomise the along-edge coordinate in the visible band
 #    (Y 62-226).  (Earlier values 16/24/176/210 were computed against
 #    a 0-based field and landed rows 1 row short / in the borders —
@@ -681,17 +712,30 @@ behaviors:
 #
 # Logic:
 #   If state != PLAYING → hide radar ($D015 bit 5 cleared)
-#   If ast_warn_dir == 255   → hide radar (no pre-rolled direction)
+#   If ast_warn_dir == 255 AND ast_pdly == 0 → hide radar (nothing
+#     pre-rolled and nothing lingering on a consumed cell)
 #   Else:
-#   Else:
-#     Position radar sprite (5) at (ast_warn_x, ast_warn_y) exactly —
-#     the marker IS where the rock will appear (preview values are
-#     always visible-friendly; no clamps needed here).
+#     Position radar sprite (5) at (ast_warn_x, ast_warn_y):
+#     - normal case: the next rock's pending arrival cell
+#     - linger case (ast_pdly > 0, warning consumed by a spawn): the
+#       cell the just-spawned rock is crossing — the marker stays put
+#       ~8 frames, then ast_update pulls the next warning and it
+#       teleports to the new cell.  (An earlier version cleared the
+#       pre-roll at spawn but let rocks re-use the same cell: several
+#       rocks left from one marker on every level.  Now the consume
+#       happens at spawn and the linger is decoupled per-frame.)
+#     (preview values are always visible-friendly; no clamps needed
+#     here.)
 #
 #   Enable sprite ($D015 | $20).
 #   On first frame of visibility (edge from hidden): play sfx_boop ping.
 #   radar_was tracks visibility edge — set on show, cleared on hide/restart.
 #   radar_was also reset in ast_preview when a new warning direction is set.
+#
+# The marker linger (ast_pdly) is ticked by ast_update once per PLAYING
+# frame (not per spawn); at zero it pre-rolls the next warning, which
+# moves the marker to the next rock's cell.  restart() and the
+# level-transition clear reset ast_warn_dir AND ast_pdly together.
 #
 # The radar sprite data is a crosshair target:
 #   8×8 diamond at the centre of 24×21 grid, transparent elsewhere.

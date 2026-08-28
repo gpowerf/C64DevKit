@@ -246,6 +246,64 @@ tests:
       - advance: 10
       - check: {what: memory, label: dmz_seed, gt: 0}
 
+  - name: spawn_consumes_warning
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_warn_dir, value: 1}
+      - poke: {label: ast_warn_x, value: 100}
+      - poke: {label: ast_warn_y, value: 60}
+      - poke: {label: ast_next_vx, value: 1}
+      - poke: {label: ast_next_vy, value: 3}
+      - poke: {label: ast_timer, value: 1}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 1
+      - check: {what: memory, label: ast_warn_dir, eq: 255}  # consumed
+      - check: {what: memory, label: ast_pdly, eq: 8}         # claimed
+      - check: {what: memory, addr: $d004, eq: 101}          # spawned+1 move
+
+  - name: warning_not_reused_by_second_spawn
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 4}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_warn_dir, value: 1}
+      - poke: {label: ast_warn_x, value: 100}
+      - poke: {label: ast_warn_y, value: 60}
+      - poke: {label: ast_next_vx, value: 1}
+      - poke: {label: ast_next_vy, value: 3}
+      - poke: {label: ast_timer, value: 1}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 1
+      - check: {what: memory, label: ast_warn_dir, eq: 255}   # consumed
+      - advance: 8                                            # linger expires
+      - check: {what: memory, label: ast_warn_dir, lt: 4}     # fresh pre-roll
+      - poke: {label: ast_timer, value: 1}
+      - advance: 1                                            # second spawn
+      - check: {what: memory, label: ast_warn_dir, eq: 255}   # also consumed
+      - check: {what: memory, label: ast_active, eq: 3}       # both rocks live
+
+  - name: linger_ticks_per_frame_not_per_spawn
+    steps:
+      - poke: {label: state, value: 0}
+      - poke: {label: level, value: 2}
+      - poke: {label: ast_active, value: 0}
+      - poke: {label: ast_warn_dir, value: 1}
+      - poke: {label: ast_warn_x, value: 100}
+      - poke: {label: ast_warn_y, value: 60}
+      - poke: {label: ast_next_vx, value: 1}
+      - poke: {label: ast_next_vy, value: 3}
+      - poke: {label: ast_timer, value: 1}
+      - poke: {label: hit_timer, value: 255}
+      - advance: 1
+      - check: {what: memory, label: ast_pdly, eq: 8}     # claimed on spawn
+      - advance: 1
+      - check: {what: memory, label: ast_pdly, eq: 7}     # one tick per frame
+      - advance: 8                                        # no spawn in between
+      - check: {what: memory, label: ast_pdly, eq: 0}     # expired
+      - check: {what: memory, label: ast_warn_dir, lt: 4} # fresh pre-roll done
+
   # ─── Restart flow ────────────────────────────────────────────────────
   - name: restart_resets_score
     steps:
@@ -324,10 +382,10 @@ tests:
       - poke: {label: ast_timer, value: 200}
       - poke: {label: ast_warn_dir, value: 1}
       - poke: {label: ast_warn_x, value: 100}
-      - poke: {label: ast_warn_y, value: 62}
+      - poke: {label: ast_warn_y, value: 60}
       - advance: 2
       - check: {what: memory, addr: $d00a, eq: 100}
-      - check: {what: memory, addr: $d00b, eq: 62}
+      - check: {what: memory, addr: $d00b, eq: 60}
 
   - name: radar_marker_matches_warn_bottom
     steps:
@@ -335,10 +393,10 @@ tests:
       - poke: {label: ast_timer, value: 200}
       - poke: {label: ast_warn_dir, value: 0}
       - poke: {label: ast_warn_x, value: 120}
-      - poke: {label: ast_warn_y, value: 234}
+      - poke: {label: ast_warn_y, value: 228}
       - advance: 2
       - check: {what: memory, addr: $d00a, eq: 120}
-      - check: {what: memory, addr: $d00b, eq: 234}
+      - check: {what: memory, addr: $d00b, eq: 228}
 
   - name: top_spawn_enters_at_top_border
     steps:
@@ -347,13 +405,13 @@ tests:
       - poke: {label: ast_active, value: 0}
       - poke: {label: ast_warn_dir, value: 1}
       - poke: {label: ast_warn_x, value: 100}
-      - poke: {label: ast_warn_y, value: 62}
+      - poke: {label: ast_warn_y, value: 60}
       - poke: {label: ast_next_vx, value: 1}
       - poke: {label: ast_next_vy, value: 3}
       - poke: {label: ast_timer, value: 1}
       - advance: 1
       - check: {what: memory, addr: $d004, eq: 101}   # x: 100 + dx 1
-      - check: {what: memory, addr: $d005, eq: 65}    # y: 62 + dy 3 — not despawned
+      - check: {what: memory, addr: $d005, eq: 62}    # y: 60 + dy 2 — clipped by the |2| level clamp (3→2)
       - check: {what: memory, label: ast_active, eq: 1}
 
   - name: bottom_spawn_enters_below_screen
@@ -363,11 +421,11 @@ tests:
       - poke: {label: ast_active, value: 0}
       - poke: {label: ast_warn_dir, value: 0}
       - poke: {label: ast_warn_x, value: 80}
-      - poke: {label: ast_warn_y, value: 234}
+      - poke: {label: ast_warn_y, value: 228}
       - poke: {label: ast_next_vx, value: 0}
       - poke: {label: ast_next_vy, value: 254}        # dy = -2 (upward)
       - poke: {label: ast_timer, value: 1}
       - advance: 1
       - check: {what: memory, addr: $d004, eq: 80}
-      - check: {what: memory, addr: $d005, eq: 232}   # 234 - 2: climbing in
+      - check: {what: memory, addr: $d005, eq: 226}   # 228 - 2: climbing in
       - check: {what: memory, label: ast_active, eq: 1}
