@@ -49,8 +49,8 @@ ast_vy:     !byte 0
 ast_warn_dir: !byte 255 ; 0=bottom, 1=top, 2=right, 3=left, 255=none
 ast_next_vx:  !byte 0
 ast_next_vy:  !byte 0
-ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X
-ast_warn_y:   !byte 0    ; pre-rolled pixel spawn Y
+ast_warn_x:   !byte 0    ; pre-rolled pixel spawn X (marker/crossing X)
+ast_warn_y:   !byte 0    ; pre-rolled crossing Y (top rocks spawn 10 px behind)
 c_saved:    !byte 0    ; saved $D01E for multi-check
 radar_was:  !byte 0     ; radar visibility edge detect
 pulse_ctr:  !byte 0     ; enemy colour pulse timer
@@ -1434,6 +1434,17 @@ ast_spawn:
     sta ast_tmp2
     lda ast_warn_y
     sta ast_tmp
+    ;; Top entries spawn BEHIND the marker: the warn cell (Y=60) is the
+    ;; crossing cell, so the rock materialises 10 px above it (Y=50) and
+    ;; moves down through the marker instead of popping in on it.
+    lda ast_warn_dir
+    cmp #1
+    bne .tdone
+    sec
+    lda ast_tmp
+    sbc #10
+    sta ast_tmp
+.tdone:
     ;; Consume the warning: it feeds exactly ONE spawn.  The marker
     ;; lingers on this cell (ast_pdly = 8, ticked once per frame by
     ;; ast_update) while the rock crosses it — no teleport at spawn
@@ -1478,8 +1489,8 @@ ast_spawn:
     cmp #$10
     bcs .f_3
 
-    ;; Top: Y=60 (the marker cell), random X
-    lda #60
+    ;; Top: Y=50 (10 px behind the marker cell at Y=60), random X
+    lda #50
     sta ast_tmp
     jsr lfsr_tick
     and #$7F
@@ -1716,7 +1727,8 @@ ast_preview:
     bcs .ap_p3
 
     ;; TOP: Y=60 — row 1 (text window spans sprite-Y 50..250, so
-    ;; row N = 50+8N; row 0 = HUD); marker and rock share this cell
+    ;; row N = 50+8N; row 0 = HUD).  This is the marker/crossing cell:
+    ;; the rock spawns 10 px behind it (Y=50) and slides through.
     lda #1
     sta ast_warn_dir
     lda #60
@@ -2118,8 +2130,8 @@ radar_do:
 
     ;; Marker = the exact warn cell (warn_x, warn_y) — the preview picks
     ;; readable, on-screen entry points (bottom 228, top 60, sides
-    ;; 24/224 × Y 62-226), so no clamps are needed here; the marker IS
-    ;; where the rock will appear.
+    ;; 24/224 × Y 62-226), so no clamps are needed here; the marker is
+    ;; the crossing cell (top rocks spawn 10 px behind at Y=50).
     lda ast_warn_x
     sta $d00a
     lda ast_warn_y

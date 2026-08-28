@@ -28,12 +28,12 @@ Lines 1177–1191 sound_tick:        ← legacy sound timer
 Lines 1192–1242 level_update:      ← level thresholds (every 256 pts, uncapped counter)
 Lines 1297–1366 level_update:      ← level thresholds (every 256 pts, uncapped counter)
 Lines 1367–1379 ast_angles:        ← 32-entry spawn direction table
-Lines 1380–1662 ast_spawn:         ← asteroid spawning (consumes one pre-rolled warning)
-Lines 1663–1668 ast_tmp:           ← spawn scratch vars
-Lines 1669–1766 ast_preview:       ← next-spawn position pre-roll
-Lines 1767–1965 ast_update:        ← marker-linger tick, spawn timer, movement + despawn
-Lines 1966–2097 ast_collision:     ← player–asteroid collision
-Lines 2098–2151 radar_do:          ← radar warning indicator (linger-aware)
+Lines 1380–1673 ast_spawn:         ← asteroid spawning (consumes one pre-rolled warning)
+Lines 1674–1679 ast_tmp:           ← spawn scratch vars
+Lines 1680–1780 ast_preview:       ← next-spawn position pre-roll
+Lines 1781–1980 ast_update:        ← marker-linger tick, spawn timer, movement + despawn
+Lines 1981–2112 ast_collision:     ← player–asteroid collision
+Lines 2113–2165 radar_do:          ← radar warning indicator (linger-aware)
 Lines 2152–2163 lfsr_tick:         ← Galois LFSR RNG
 Lines 1961–1972 lfsr_tick:         ← Galois LFSR RNG
 Lines 2164–2201 dmz_init:          ← DMZ colour RAM init fill
@@ -516,7 +516,11 @@ then LFSR for per-cell variation.
 **Edge determination** is grouped by ANGLE GROUP INDEX (0-7 bottom,
 8-15 top, 16-23 right, 24-31 left), so `ast_spawn` and `ast_preview`
 share ONE rule and a pre-rolled angle always warns on the edge it
-spawns from.  Example (bottom edge):
+spawns from.  The warn cell is the marker cell; for BOTTOM/LEFT/RIGHT
+it is also the spawn cell, but TOP rocks materialise 10 px BEHIND it
+(Y=50, `ast_spawn` subtracts 10 from `ast_warn_y` when
+`ast_warn_dir == 1`) so the rock crosses the marker instead of popping
+in on it.  Example (bottom edge):
 
 ```asm
     lda #228              ; bottom edge Y (row 22)

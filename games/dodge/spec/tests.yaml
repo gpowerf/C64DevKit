@@ -411,7 +411,7 @@ tests:
       - poke: {label: ast_timer, value: 1}
       - advance: 1
       - check: {what: memory, addr: $d004, eq: 101}   # x: 100 + dx 1
-      - check: {what: memory, addr: $d005, eq: 62}    # y: 60 + dy 2 — clipped by the |2| level clamp (3→2)
+      - check: {what: memory, addr: $d005, eq: 52}    # y: spawn 50 (behind marker) + dy 2 — clipped by the |2| level clamp (3→2)
       - check: {what: memory, label: ast_active, eq: 1}
 
   - name: bottom_spawn_enters_below_screen

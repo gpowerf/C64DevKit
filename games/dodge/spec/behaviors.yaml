@@ -66,7 +66,7 @@
 #   ast_next_vx  1 B    —       Pre-rolled spawn X velocity
 #   ast_next_vy  1 B    —       Pre-rolled spawn Y velocity
 #   ast_warn_x   1 B    —       Pre-rolled spawn X position
-#   ast_warn_y   1 B    —       Pre-rolled spawn Y position
+#   ast_warn_y   1 B    —       Pre-rolled crossing Y (top rocks spawn 10 px behind)
 #   ast_pdly     1 B    0       Marker linger countdown (frames): >0 means the
 #                           radar still shows the consumed marker cell while
 #                           the rock crosses it; ast_update decrements it every
@@ -607,11 +607,13 @@ behaviors:
 #      Read CIA timer ($DC04) XOR raster ($D012), mask to $1F, ×2
 #      → index into ast_angles table.
 #
-# 4. Determine spawn edge from velocity:
-#      dy < 0  → Bottom edge:  Y=210, random X via LFSR (40–167)
-#      dy > 0  → Top edge:     Y=50,  random X via LFSR (40–167)
-#      dx < 0  → Right edge:   X=255, random Y via LFSR (50–229)
-#      dx ≥ 0  → Left edge:    X=24,  random Y via LFSR (50–229)
+# 4. Determine spawn edge from the ANGLE GROUP index (0-7 bottom,
+#    8-15 top, 16-23 right, 24-31 left — the table groups ARE the
+#    edges; former sign tests misrouted diagonals, see ast_preview):
+#      Bottom: Y=228,      random X via LFSR (40–167)
+#      Top:     Y=50  (10 px behind the Y=60 marker), random X (40–167)
+#      Right:   X=224,      random Y via LFSR (62–226)
+#      Left:    X=24,       random Y via LFSR (62–226)
 #
 # 5. Find free slot (0→2) where ast_active bit is clear.
 #    If all full, return.
@@ -679,15 +681,18 @@ behaviors:
 #    into the DMZ), so spawn + preview share ONE rule.
 # 3. Store velocity in ast_next_vx, ast_next_vy.
 # 4. Compute spawn position (same edge rules as spawn) and store in
-#    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the spawn
-#    cell AND the marker position — positions computed on the CORRECT
+#    ast_warn_x, ast_warn_y.  Edge rules (the warn cell IS the marker
+#    position; for BOTTOM/LEFT/RIGHT it is also the spawn cell — TOP is
+#    the crossing cell, with the rock spawning 10 px behind at Y=50).
+#    Positions computed on the CORRECT
 #    sprite-Y map: the C64 text window spans sprite-Y 50..250 (row 0 =
 #    50-58 … row 24 = 242-250), so a row N entry lives at Y = 50+8N.
 #    Entries: BOTTOM Y=228 (row 22 — sprite-Y 226-234, 6 px up from
 #    the old 234 baseline so the marker clears the bottom text row
-#    edge), TOP Y=60 (row 1 = sprite-Y 58-66;
-#    moved up 2 px from 62 so the marker reads as one clean grid cell
-#    edge-to-edge with the HUD row), LEFT X=24, RIGHT X=224
+#    edge), TOP Y=60 marker (row 1 = sprite-Y 58-66; rock spawns 10 px
+#    behind it at Y=50, the HUD row, then slides down through the
+#    marker — this never lands in front of the crosshair),
+#    LEFT X=24, RIGHT X=224
 #    (6 px left of the DMZ threshold); side entries
 #    randomise the along-edge coordinate in the visible band
 #    (Y 62-226).  (Earlier values 16/24/176/210 were computed against
@@ -702,13 +707,15 @@ behaviors:
 # System 11 — Radar Warning Indicator (radar_do)
 # =============================================================================
 #
-# Sprite 5 (radar) shows the EXACT spawn position of the next asteroid
+# Sprite 5 (radar) shows the EXACT arrival cell of the next asteroid
 # BEFORE it appears, giving the player a visual warning.  The marker is
-# deliberately not an abstract "edge pin": it sits precisely where the
-# rock will materialise, so the arrival reads as the warned object
+# deliberately not an abstract "edge pin": it sits precisely at the
+# entry cell, so the arrival reads as the warned object
 # crossing the border (a prior version pinned Y=59 top / Y=229 bottom /
 # X=230 right and drifted 19-51 px from the real entry — the "rock
-# appears in front of the radar" bug).
+# appears in front of the radar" bug).  For the top edge the marker is
+# the CROSSING cell: the rock spawns 10 px behind it (Y=50) and slides
+# down through it, so it never pops in at the marker itself.
 #
 # Logic:
 #   If state != PLAYING → hide radar ($D015 bit 5 cleared)

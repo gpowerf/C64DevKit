@@ -17,6 +17,23 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-28 · asteroids: top rock spawns behind the radar marker (Y=50)
+
+- **What:** top-edge asteroids now materialise at sprite-Y **50**, 10 px
+  behind the Y=60 marker cell, and slide down through the crosshair.
+  Both spawn paths changed: `ast_spawn`'s pre-rolled path subtracts 10
+  from `ast_warn_y` when `ast_warn_dir == 1`, and the random-pick path
+  uses Y=50 outright.  `ast_preview` still rolls the marker at Y=60 —
+  it is now the crossing cell.  Specs (behaviors.yaml, DESIGN.md,
+  ASSEMBLY.md) and the `top_spawn_enters_at_top_border` test synced.
+- **Why:** the rock popped in ON the marker (dodging past the glance
+  warning — visually it appeared in front of, or exactly at, the
+  crosshair).  Spawning behind the marker keeps the warning cell clear
+  so the arrival always reads as the warned rock crossing the border.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-28 · asteroids: entry cells realigned (top 60, bottom 228, right X=224)
 
 - **What:** the asteroid top entry (marker + rock spawn) moved from

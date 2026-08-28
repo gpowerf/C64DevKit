@@ -68,9 +68,10 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 - Up to 3 independent rock sprites (sprites 2/3/4, block $85).
 - **Spawn from all 4 screen edges** at positions inside the visible
   playfield, on the true sprite-Y map (text window = sprite-Y 50..250):
-  bottom (Y=228, row 22), top (Y=60, row 1 = 58-66, flush with the HUD
-  edge), left/right (X=24/224, right 6 px inside the DMZ threshold),
-  with an inward velocity from a
+  bottom (Y=228, row 22), top (spawn Y=50, 10 px behind the Y=60
+  marker row 1 = 58-66, so the rock slides through the crosshair
+  instead of popping in on it), left/right (X=24/224, right 6 px
+  inside the DMZ threshold), with an inward velocity from a
   16‑angle table.  Side
   entries randomise within the visible band (Y 62‑226).
 - Each angle is an LFSR‑picked (dx, dy) pair — diagonals, steep, shallow.
@@ -82,8 +83,9 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 - Distance gate (18 px) prevents false‑positive hardware collisions.
 - 16‑bit signed velocity, 8‑bit position with $D010 MSB per slot.
 - Rock sprite data at $2140 (64 bytes), yellow/orange/light‑red colours.
-- **Radar warning**: a crosshair marker sits at the exact spawn point
-  before the rock appears (top Y=60, bottom Y=228, sides X=24/224 — all
+- **Radar warning**: a crosshair marker sits at the exact arrival cell
+  before the rock appears (top Y=60 crossing cell, bottom Y=228, sides
+  X=24/224 — all
   inside the text window), fading to the next warning ~8 frames after a
   rock spawns, with a sonar ping on arrival.
 
