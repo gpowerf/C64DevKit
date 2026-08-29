@@ -224,6 +224,9 @@ tests:
       - poke: {label: ast_timer, value: 1}
       - advance: 5
       - check: {what: memory, label: ast_active, eq: 0}
+      - check: {what: memory, label: ast_warn_dir, eq: 255}   # nothing pre-rolled
+      - check: {what: memory, addr: $d00a, eq: 0}             # radar parked at init pos
+      - check: {what: memory, addr: $d00b, eq: 250}
 
   - name: level5_spawn
     steps:

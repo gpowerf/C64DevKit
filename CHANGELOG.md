@@ -17,6 +17,27 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-28 · asteroids: no radar marker on level 1
+
+- **Bug:** the radar crosshair appeared on level 1 even though no rocks
+  exist there.  Root cause: `ast_update`'s post-spawn pre-roll ran
+  whenever `ast_warn_dir == 255 && ast_pdly == 0` — which is always
+  true on a level-1 fresh start, since `ast_spawn` is a no-op below
+  level 2.  The warning was rolled every spawn-timer cycle and the
+  marker just sat at a cell warning for a rock that could never exist.
+- **What:** the post-spawn pre-roll in `ast_update` is now gated on
+  `level >= 2` (single point fix — `ast_preview` itself stays
+  ungated; its other two call sites, `level_update` and the linger
+  expiry, cannot fire on level 1).  `no_asteroids_at_level_1`
+  extended with `ast_warn_dir == 255` and radar sprite parked at
+  `$d00a/$d00b = 0/250`; specs (behaviors.yaml, ASSEMBLY.md,
+  DESIGN.md) documented the level-1 no-warning rule.
+- **Why:** a warning for nothing undercuts the game's honest telegraphs
+  and reads as a bug.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-28 · asteroids: top rock spawns behind the radar marker (Y=50)
 
 - **What:** top-edge asteroids now materialise at sprite-Y **50**, 10 px

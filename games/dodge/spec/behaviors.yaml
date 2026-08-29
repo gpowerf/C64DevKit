@@ -633,6 +633,9 @@ behaviors:
 # if no warning is pending AND no marker is lingering (ast_warn_dir
 # == 255 && ast_pdly == 0 — fresh level start or respawn), ast_preview
 # runs immediately so the radar shows the next rock's cell right away.
+# GATE: level 1 only — asteroids don't exist below level 2
+# (ast_spawn returns early), so the pre-roll is skipped and no radar
+# marker shows for a rock that can never spawn.
 #
 # Marker linger: ast_pdly > 0 → decrement each frame; at 0 call
 # ast_preview (moves the marker to the next rock's cell).  Tick runs
@@ -716,6 +719,8 @@ behaviors:
 # appears in front of the radar" bug).  For the top edge the marker is
 # the CROSSING cell: the rock spawns 10 px behind it (Y=50) and slides
 # down through it, so it never pops in at the marker itself.
+# The radar only ever shows from level 2 on — level 1 has no asteroids,
+# so no warning is pre-rolled and the sprite stays parked (0, 250).
 #
 # Logic:
 #   If state != PLAYING → hide radar ($D015 bit 5 cleared)

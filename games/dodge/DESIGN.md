@@ -87,7 +87,8 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
   before the rock appears (top Y=60 crossing cell, bottom Y=228, sides
   X=24/224 — all
   inside the text window), fading to the next warning ~8 frames after a
-  rock spawns, with a sonar ping on arrival.
+  rock spawns, with a sonar ping on arrival.  Level 2+ only — level 1
+  has no asteroids, so no warning is pre-rolled.
 
 ## Death
 - On collision: enemy teleports opposite player, player flashes 150 frames.

@@ -553,6 +553,9 @@ Right-edge despawn happens via Y bounds (dy ≠ 0) or X underflow
 **Preview/radar**: `ast_preview` pre-computes the NEXT asteroid's spawn
 position and stores it in `ast_warn_x`, `ast_warn_y`, `ast_warn_dir`.
 The radar sprite reads these to show the warning indicator.
+The post-spawn pre-roll in `ast_update` is gated on `level >= 2`:
+level 1 has no asteroids (ast_spawn returns early), so it never rolls
+a warning and the radar stays parked off-screen at (0, 250).
 
 **Warning consumption (one rock per marker)**: on spawn, `ast_spawn`
 uses the pre-rolled values if `ast_warn_dir != 255`, then immediately

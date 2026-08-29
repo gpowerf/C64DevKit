@@ -1798,6 +1798,12 @@ ast_update:
     bne .spwn_d
 .spwn:
     jsr ast_spawn
+    ;; Level 1: no asteroids (ast_spawn is a no-op), so never pre-roll
+    ;; a warning — the radar would show a marker for a rock that can
+    ;; never exist.
+    lda level
+    cmp #2
+    bcc .pd_d
     ;; Fresh start / respawn: no warning pending, nothing lingering →
     ;; pre-roll now so the marker leads the next rock.
     lda ast_warn_dir
