@@ -307,8 +307,8 @@ tests:
       - check: {what: memory, label: ast_pdly, eq: 0}     # expired
       - check: {what: memory, label: ast_warn_dir, lt: 4} # fresh pre-roll done
 
-  # ─── Restart flow ────────────────────────────────────────────────────
-  - name: restart_resets_score
+  # ─── Game over / splash return flow ──────────────────────────────────
+  - name: game_over_draws_title_and_prompt
     steps:
       - poke: {label: state, value: 2}
       - poke: {label: go_drawn, value: 0}
@@ -317,13 +317,23 @@ tests:
       - poke: {label: prev_k, value: 5}   # suppress level-up transition
       - advance: 1
       - check: {what: memory, label: go_drawn, eq: 1}
+      - check: {what: memory, addr: $05f0, eq: $07}   # "game over" title (row 12, col 16; !scr caps)
+      - check: {what: memory, addr: $0610, eq: $10}   # "press fire..." prompt (row 13, col 8)
+      - check: {what: memory, addr: $da10, eq: 15}    # prompt lt.grey
+      - check: {what: memory, addr: $0409, eq: $34}   # HUD keeps final score: '4'
+      - check: {what: memory, addr: $040a, eq: $32}   # HUD keeps final score: '2'
 
-  - name: restart_resets_level
+  - name: game_over_waits_for_fire
     steps:
       - poke: {label: state, value: 2}
       - poke: {label: level, value: 4}
       - advance: 1
-      - check: {what: memory, label: level, eq: 4}   # not reset until SPACE
+      - check: {what: memory, label: level, eq: 4}   # not reset until fire
+
+  # The fire/SPACE → splash transition is verified manually: VICE's CIA
+  # refreshes $DC00/$DC01 from emulated hardware, so monitor pokes of the
+  # key registers are overwritten before the frame reads them — no
+  # key-injection path exists in the harness.
 
   # ─── DMZ / safe zone ─────────────────────────────────────────────────
   - name: dmz_seed_nonzero

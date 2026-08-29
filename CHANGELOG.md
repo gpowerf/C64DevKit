@@ -17,6 +17,25 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-28 · game over: full screen + splash return
+
+- **What:** the game-over screen now renders "game over" (white, row 12
+  col 16) plus a centred "press fire to play again" prompt (lt.grey
+  row 13 col 8), keeps the HUD live for the final score (behaviors_update
+  already ran every frame — verified + tested), and fire/SPACE returns
+  to the SPLASH screen instead of jumping straight into a new game.
+  `ov_restart` now calls `restart()` (full state reset) then sets
+  `state = GAME_SPLASH` and `splash_done = 0` so the splash block
+  re-renders the title; the splash's own fire path starts the fresh
+  level-1 game via do_init.  `restart()` also clears `start_level` so a
+  stale loader pick (e.g. level 3) doesn't leak into the next play.
+- **Why:** deaths now end with a proper payoff — see the run you beat,
+  read the prompt, go back to the title like the arcade loop the game
+  started on.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-28 · asteroids: no radar marker on level 1
 
 - **Bug:** the radar crosshair appeared on level 1 even though no rocks

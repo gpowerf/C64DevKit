@@ -546,6 +546,15 @@ ov_wait:
     bne ov_done
 ov_restart:
     jsr restart
+    ;; Game over → back to the splash title.  restart() already reset
+    ;; all game state (score, lives, level, positions, asteroids); force
+    ;; the splash block to re-render (splash_done = 0) and let gstart's
+    ;; SPLASH dispatch take over next frame.  The splash's own fire/
+    ;; SPACE path then starts a fresh level-1 game via do_init.
+    lda #GAME_SPLASH
+    sta state
+    lda #0
+    sta splash_done
 ov_done:
     rts
 
@@ -573,14 +582,29 @@ go_clr:
     ldx #0
 go_txt:
     lda over_text, x
-    beq go_done
+    beq go_next
     sta SCRN+$1E0+16, x
     inx
     bne go_txt
+
+    ;; Prompt — "press fire to play again" at row 13, col 8 (24 chars,
+    ;; centred), lt.grey like the splash sub-prompt.  The colour pre-
+    ;; write above set row 13 white; this span is overwritten grey.
+go_next:
+    ldx #0
+go_ptxt:
+    lda over_prompt, x
+    beq go_done
+    sta SCRN+$208+8, x
+    lda #15
+    sta $da08+8, x
+    inx
+    bne go_ptxt
 go_done:
     rts
 
 over_text:  !scr "game over", 0
+over_prompt: !scr "press fire to play again", 0
 
 ;; ============================================================
 restart:
@@ -639,6 +663,8 @@ restart:
     ;; Reset level + asteroids (game-over restart always runs at level 1)
     lda #1
     sta level
+    lda #0
+    sta start_level        ; forget any loader level pick — splash re-picks
     lda #128
     sta speed_frac
     lda #40

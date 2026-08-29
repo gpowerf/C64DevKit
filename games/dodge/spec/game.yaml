@@ -48,8 +48,10 @@
 #
 # Game over screen:
 #   "game over" in white at row 12, col 16.
-#   Row 12–13 colour RAM set to white.
-#   SPACE restarts game.
+#   "press fire to play again" in lt.grey (15) at row 13, col 8.
+#   The HUD (row 0) stays visible so the player sees the final score.
+#   Fire or SPACE returns to the splash screen; playing from the splash
+#   starts a fresh level-1 game.
 #   Background drone sound on voice 1 during game-over wait.
 #
 # Transition screen (between levels):

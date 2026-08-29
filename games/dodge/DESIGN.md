@@ -42,8 +42,12 @@ Yars' Revenge style digital noise — full-zone colour-RAM refresh every 3 frame
 - Lose 1 on collision with enemy or asteroid
 - DMZ (X ≥ 224) grants immunity to both
 - 0 lives → GAME OVER
-- GAME OVER: "GAME OVER" + "PRESS SPACE TO PLAY" centered
-- SPACE restarts: lives=3, score=0, level=1, player at (160,120), enemy at (100,80) (loader-selected levels land via do_init on fresh starts)
+- GAME OVER: "game over" (white, row 12) + "press fire to play again"
+  (lt.grey, row 13) centered; the HUD (row 0) stays visible showing the
+  final score
+- Fire/SPACE returns to the SPLASH screen (title re-renders, game state
+  fully reset); from the splash, fire/SPACE starts a fresh level-1 game
+  (loader-selected levels land via do_init on that fresh start)
 
 ## Levels
 Level-ups fire every 256 points (when the score high byte crosses a new
@@ -177,7 +181,8 @@ PLAYING (0)  → keyboard, enemy AI, scoring, collision
 DYING (1)     → player flashes, 150‑frame timer
                  ↓ lives > 0     ↓ lives = 0
                PLAYING (0)    GAME_OVER (2)
-GAME_OVER (2) → show text, wait for SPACE → restart → PLAYING (0)
+GAME_OVER (2) → show text + final score HUD, wait for fire →
+               restart → SPLASH (3) → fire → PLAYING (0) fresh level 1
 ```
 
 ## Splash screen
@@ -190,7 +195,8 @@ GAME_OVER (2) → show text, wait for SPACE → restart → PLAYING (0)
   ">" highlight; digits/jump, joystick up-down + fire/SPACE, F1 back.
 - Frame loop only (no keyboard movement during splash).
 - fire/SPACE or a digit transitions to PLAYING (at the chosen level);
-  restart skips the splash.
+  the game-over screen returns here (restart resets the game, then the
+  splash re-renders).
 
 ## Sound
 - Death: voice 1 sawtooth, 5000 Hz, instant ADSR, 20 frames.

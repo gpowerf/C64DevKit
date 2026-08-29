@@ -142,7 +142,9 @@ behaviors:
 #   GAME_SPLASH  = 3   Title screen, DMZ side-bar shimmer, SPACE to start
 #   GAME_PLAYING = 0   Normal gameplay
 #   GAME_DYING   = 1   Player just hit; flash + timer before respawn
-#   GAME_OVER    = 2   Lives exhausted; "game over" + SPACE to restart
+#   GAME_OVER    = 2   Lives exhausted; "game over" + "press fire to
+#                       play again" prompt; HUD stays visible with the
+#                       final score
 #   GAME_TRANSITION = 4  Between levels: "LEVEL X" display (1–2 digits,
 #                         leading space below 10), reset, timer
 #
@@ -158,7 +160,11 @@ behaviors:
 #   DYING → PLAYING         150-frame timer expires + lives > 0
 #                            (player sprite flashes at 4-frame interval)
 #   DYING → GAME_OVER     150-frame timer expires + lives == 0
-#   GAME_OVER → PLAYING   SPACE pressed (calls restart subroutine)
+#   GAME_OVER → SPLASH     fire or SPACE pressed: restart() resets all
+#                           game state, then state=SPLASH and
+#                           splash_done=0 so the title re-renders.
+#                           From the splash, fire/SPACE starts a fresh
+#                           level-1 game (do_init re-runs).
 #
 # Frame dispatch logic:
 #   1. Always run sfx_gate_off + sfx_tick_all + dmz_do
@@ -169,7 +175,7 @@ behaviors:
 #   5. If PLAYING: do_play (pwr_check, enemy_do, score_do, collision_do,
 #            ast_collision, invincibility flash)
 #   6. If DYING:   do_die (flash, timer, respawn or game over)
-#   7. If GAME_OVER: do_over (draw text, wait for SPACE, restart)
+#   7. If GAME_OVER: do_over (draw text, HUD stays, wait for fire → splash)
 #
 
 
@@ -476,21 +482,37 @@ behaviors:
 # System 8 — Game Over (do_over)
 # =============================================================================
 #
+# The HUD (behaviors_update) runs every main_loop frame in every state,
+# so row 0 keeps showing the final score, lives and level throughout the
+# game-over screen (score is frozen — scoring only runs in do_play).
+#
 # One-shot display (go_drawn flag):
 #   Calls draw_gameover on first frame:
 #     - Set colour RAM rows 12–13 all white (1)
 #     - Clear screen RAM rows 12–13 (fill with space $20)
-#     - Write "game over" at row 12, col 16
+#     - Write "game over" at row 12, col 16 (white)
+#     - Write "press fire to play again" at row 13, col 8 (lt.grey 15,
+#       centered — "game over" stays white)
 #   Play game-over sound via sfx_drone (low pulse rumble, ~60 Hz, 30 fr):
 #     auto-cleared by sfx_gate_off when sfx_dur reaches 0.
 
 # Wait loop (subsequent frames):
 #   - Run sound_tick (handles both legacy snd_timer and sfx_gate_off)
-#   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4)
-#   - If SPACE pressed: call restart, return
+#   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4) and
+#     joystick port 2 fire
+#   - If fire/SPACE pressed: return to the SPLASH screen, don't restart
+#     into gameplay directly
 #   - Else: loop
 #
-# Restart subroutine:
+# Fire/SPACE sequence (ov_restart):
+#   1. Call restart() — full game-state reset (below)
+#   2. state = GAME_SPLASH, splash_done = 0 — gstart's SPLASH dispatch
+#      runs do_splash next frame; with splash_done == 0 draw_splash
+#      re-renders the title screen over the game field.
+#   3. From the splash, fire/SPACE re-runs do_init (ds_start clears
+#      init_done) and starts a fresh level-1 game.
+#
+# Restart subroutine (restart):
 #   1. Reset variables: lives=3, score=0, state=PLAYING, state_tmr=0,
 #      snd_timer=0, speed_ctr=0, go_drawn=0, last_safe=0, zone_ticks=0
 #   2. hit_timer = 10 (initial grace period)
@@ -502,12 +524,15 @@ behaviors:
 #        ast_active=0, ast_msb=0, ast_warn_dir=255
 #        ast_warn_x=0, ast_warn_y=0
 #        All 3 asteroid VIC positions off-screen (X=0, Y=250)
-#   7. Restore colour RAM rows 12–13 to zone colours (green 0–12,
+#   7. start_level = 0 (forget any loader level pick — the splash is
+#      where levels get chosen again)
+#   8. Restore colour RAM rows 12–13 to zone colours (green 0–12,
 #      black 13–27, blue 28–39)
-#   8. Clear screen RAM rows 12–13 (fill with $A0 solid blocks)
+#   9. Clear screen RAM rows 12–13 (fill with $A0 solid blocks)
 #
-# Note: do_init is NOT re-run.  Only restart.  (do_init is only re-run
-#       on the splash→play transition, which resets init_done=0.)
+# Note: do_init is NOT re-run by restart.  (do_init is re-run by the
+#       splash→play transition, which resets init_done=0 — that is the
+#       path back into gameplay after the game-over splash return.)
 #
 
 
