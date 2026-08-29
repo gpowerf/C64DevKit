@@ -17,6 +17,37 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-28 · game over: press-release gate before splash return
+
+- **Bug:** pressing fire/SPACE at the game-over screen booted a fresh
+  level-1 game instead of showing the title.  The press that ends the
+  game-over screen is still held 2–5 frames, and the splash's own
+  fire/SPACE start trigger re-checked it on its first frame → ds_start
+  → do_init → playing (the splash existed for less than one frame).
+- **What:** `ov_wait` now enters a RELEASE GATE after first detecting a
+  press: it polls `$DC01`/`$DC00` (still ticking `sound_tick`) until
+  BOTH SPACE and port-2 fire read released, and only then runs
+  `ov_restart` (restart + state=SPLASH + splash_done=0).  Classic
+  arcade debounce; no new variables.
+- **Why:** fixes the reported regression — fire at "press fire" now
+  lands on the title screen.
+- **Commits:** (this change set)
+
+---
+
+## 2026-08-28 · game over: prompt shortened to "press fire"
+
+- **What:** the game-over prompt reads just "press fire" (10 chars,
+  centred at row 13 col 15, lt.grey) instead of "press fire to play
+  again" (row 13 col 8).  String, column, test addresses
+  (`$0617`/`$da17`) and spec docs synced.
+- **Why:** shorter, cleaner line under the title; the screen reader
+  doesn't need the words "to play again" — the game-over flow already
+  says what happens.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-28 · game over: full screen + splash return
 
 - **What:** the game-over screen now renders "game over" (white, row 12

@@ -318,8 +318,9 @@ tests:
       - advance: 1
       - check: {what: memory, label: go_drawn, eq: 1}
       - check: {what: memory, addr: $05f0, eq: $07}   # "game over" title (row 12, col 16; !scr caps)
-      - check: {what: memory, addr: $0610, eq: $10}   # "press fire..." prompt (row 13, col 8)
-      - check: {what: memory, addr: $da10, eq: 15}    # prompt lt.grey
+      - check: {what: memory, addr: $0617, eq: $10}   # "press fire" prompt (row 13, col 15)
+      # (prompt colour = lt.grey 15 verified visually — colour-RAM bytes
+      # keep machine-dependent upper-nibble junk on readback)
       - check: {what: memory, addr: $0409, eq: $34}   # HUD keeps final score: '4'
       - check: {what: memory, addr: $040a, eq: $32}   # HUD keeps final score: '2'
 

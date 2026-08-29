@@ -491,7 +491,7 @@ behaviors:
 #     - Set colour RAM rows 12–13 all white (1)
 #     - Clear screen RAM rows 12–13 (fill with space $20)
 #     - Write "game over" at row 12, col 16 (white)
-#     - Write "press fire to play again" at row 13, col 8 (lt.grey 15,
+#     - Write "press fire" at row 13, col 15 (lt.grey 15,
 #       centered — "game over" stays white)
 #   Play game-over sound via sfx_drone (low pulse rumble, ~60 Hz, 30 fr):
 #     auto-cleared by sfx_gate_off when sfx_dur reaches 0.
@@ -500,8 +500,12 @@ behaviors:
 #   - Run sound_tick (handles both legacy snd_timer and sfx_gate_off)
 #   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4) and
 #     joystick port 2 fire
-#   - If fire/SPACE pressed: return to the SPLASH screen, don't restart
-#     into gameplay directly
+#   - If either is pressed: enter the RELEASE GATE first — poll (still
+#     ticking sound_tick) until BOTH SPACE and port-2 fire read
+#     released, then go to the SPLASH screen.  Without the gate the same
+#     physical press (held 2–5 frames) re-triggers the splash's own
+#     fire/SPACE start check on its first frame, skipping the title and
+#     booting a fresh level-1 game (the reported regression).
 #   - Else: loop
 #
 # Fire/SPACE sequence (ov_restart):

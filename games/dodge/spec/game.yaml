@@ -48,7 +48,7 @@
 #
 # Game over screen:
 #   "game over" in white at row 12, col 16.
-#   "press fire to play again" in lt.grey (15) at row 13, col 8.
+#   "press fire" in lt.grey (15) at row 13, col 15.
 #   The HUD (row 0) stays visible so the player sees the final score.
 #   Fire or SPACE returns to the splash screen; playing from the splash
 #   starts a fresh level-1 game.

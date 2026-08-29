@@ -42,8 +42,8 @@ Yars' Revenge style digital noise — full-zone colour-RAM refresh every 3 frame
 - Lose 1 on collision with enemy or asteroid
 - DMZ (X ≥ 224) grants immunity to both
 - 0 lives → GAME OVER
-- GAME OVER: "game over" (white, row 12) + "press fire to play again"
-  (lt.grey, row 13) centered; the HUD (row 0) stays visible showing the
+- GAME OVER: "game over" (white, row 12) + "press fire"
+  (lt.grey, row 13, centered); the HUD (row 0) stays visible showing the
   final score
 - Fire/SPACE returns to the SPLASH screen (title re-renders, game state
   fully reset); from the splash, fire/SPACE starts a fresh level-1 game

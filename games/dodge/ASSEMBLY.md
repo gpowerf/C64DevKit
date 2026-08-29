@@ -17,30 +17,29 @@ Lines 76–189   gstart:             ← frame dispatcher (jsr chain + state swi
 Lines 212–385  init_once / do_init ← one-shot screen setup
 Lines 390–421  do_play + pwr_check ← PLAYING state + fire/shift powerup trigger
 Lines 470–507  do_die:             ← DYING state (flash + timer)
-Lines 508–607  do_over:            ← GAME_OVER state (draw + wait; fire → splash)
-Lines 608–728  restart:            ← reset all state on replay (level/speed/score → level 1 fresh start)
-Lines 729–915  keyboard_read:      ← WASD keyboard scan + joystick port 2
-Lines 916–1010 enemy_do:           ← enemy chase AI
-Lines 1011–1083 score_do:          ← zone-based scoring
-Lines 1084–1177 collision_do:      ← player–enemy collision
-Lines 1178–1306 do_transition:     ← "LEVEL X" screen (1–2 digit display)
-Lines 1307–1321 sound_tick:        ← legacy sound timer
-Lines 1322–1391 level_update:      ← level thresholds (every 256 pts, uncapped counter)
-Lines 1392–1404 ast_angles:        ← 32-entry spawn direction table
-Lines 1405–1698 ast_spawn:         ← asteroid spawning (consumes one pre-rolled warning)
-Lines 1699–1704 ast_tmp:           ← spawn scratch vars
-Lines 1705–1805 ast_preview:       ← next-spawn position pre-roll
-Lines 1806–2011 ast_update:        ← marker-linger tick, spawn timer, movement + despawn
-Lines 2012–2143 ast_collision:     ← player–asteroid collision
-Lines 2144–2196 radar_do:          ← radar warning indicator (linger-aware)
-Lines 2197–2208 lfsr_tick:         ← Galois LFSR RNG
-Lines 2209–2237 dmz_init:          ← DMZ colour RAM init fill
-Lines 2238–2274 dmz_do:            ← DMZ per-frame static refresh
-Lines 2275–2460 d_mul40 + splash preamble: ← row × 40 multiply, splash block kickoff ($2A00)
-Lines 2461–2565 do_splash/splash_wait: ← title screen (owns the frame loop)
-Lines 2566–3095 menu_wait / loader_draw / menu_puts / menu_marker ← cracked level-select loader + splash_bars/draw_splash
-Lines 3096–3168 title_load:        ← title glyph charset load
-Lines 3169+     boom_tick + sound data + rock/radar sprite data
+Lines 508–629  do_over:            ← GAME_OVER state (draw + wait; fire → splash via release gate)
+Lines 630–750  restart:            ← reset all state on replay (level/speed/score → level 1 fresh start)
+Lines 751–937  keyboard_read:      ← WASD keyboard scan + joystick port 2
+Lines 938–1032 enemy_do:           ← enemy chase AI
+Lines 1033–1105 score_do:          ← zone-based scoring
+Lines 1106–1199 collision_do:      ← player–enemy collision
+Lines 1200–1328 do_transition:     ← "LEVEL X" screen (1–2 digit display)
+Lines 1329–1343 sound_tick:        ← legacy sound timer
+Lines 1344–1413 level_update:      ← level thresholds (every 256 pts, uncapped counter)
+Lines 1414–1426 ast_angles:        ← 32-entry spawn direction table
+Lines 1427–1720 ast_spawn:         ← asteroid spawning (consumes one pre-rolled warning)
+Lines 1721–1726 ast_tmp:           ← spawn scratch vars
+Lines 1727–1827 ast_preview:       ← next-spawn position pre-roll
+Lines 1828–2033 ast_update:        ← marker-linger tick, spawn timer, movement + despawn
+Lines 2034–2165 ast_collision:     ← player–asteroid collision
+Lines 2166–2218 radar_do:          ← radar warning indicator (linger-aware)
+Lines 2219–2230 lfsr_tick:         ← Galois LFSR RNG
+Lines 2231–2259 dmz_init:          ← DMZ colour RAM init fill
+Lines 2260–2296 dmz_do:            ← DMZ per-frame static refresh
+Lines 2297–2482 d_mul40 + splash preamble: ← row × 40 multiply, splash block kickoff ($2A00)
+Lines 2483–2587 do_splash/splash_wait: ← title screen (owns the frame loop)
+Lines 2588–3117 menu_wait / loader_draw / menu_puts / menu_marker ← cracked level-select loader + splash_bars/draw_splash
+Lines 3118+     title_load + sound data + rock/radar sprite data
 ```
 
 ---
@@ -895,18 +894,22 @@ are unaffected.  Runs for 150 frames (~3 seconds).
 Direct PETSCII text writes to screen RAM using `!scr` for conversion:
 ```asm
 over_text:   !scr "game over", 0
-over_prompt: !scr "press fire to play again", 0
+over_prompt: !scr "press fire", 0
 ```
 The title renders white at row 12 col 16; the prompt sits at row 13
-col 8 in lt.grey (per-cell colour overwrite after the whole-row white
+col 15 in lt.grey (per-cell colour overwrite after the whole-row white
 fill).  `behaviors_update` still runs every frame, so the HUD keeps
-showing the final score.  On fire/SPACE, `ov_restart` calls `restart()`
-(which resets all game state and clears `start_level`), then sets
-`state = GAME_SPLASH` and `splash_done = 0` so the splash block
-re-renders the title screen; the splash→play path starts a fresh
-level-1 game via `do_init`.  The restart routine restores the zone
-colours by re-painting rows 12–13 with the 3-zone pattern, then clears
-the text area back to solid blocks.
+showing the final score.  On fire/SPACE, `ov_wait` first waits for the
+press to lift — the RELEASE GATE polls `$DC01`/`$DC00` (ticking
+`sound_tick`) until both SPACE and port-2 fire read released, because
+the same press would otherwise re-trigger the splash's own start check
+a frame later and skip the title (boots level 1 instantly).  Only then
+does `ov_restart` call `restart()` (which resets all game state and
+clears `start_level`), set `state = GAME_SPLASH` and `splash_done = 0`
+so the splash block re-renders the title screen; the splash→play path
+starts a fresh level-1 game via `do_init`.  The restart routine restores
+the zone colours by re-painting rows 12–13 with the 3-zone pattern, then
+clears the text area back to solid blocks.
 
 ---
 

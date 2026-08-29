@@ -533,7 +533,7 @@ ov_wait:
     sta $dc00
     lda $dc01
     and #$10
-    beq ov_restart
+    beq ov_held
     ;; Check joystick port 2 fire
     lda #$00
     sta $dc02
@@ -544,6 +544,27 @@ ov_wait:
     sta $dc02
     txa
     bne ov_done
+ov_held:
+    ;; Release gate — the press detected above is still physically down.
+    ;; Entering the splash right away re-triggers the splash's own fire/
+    ;; SPACE start check a frame later, skipping the title and booting a
+    ;; fresh level-1 game.  Wait until BOTH keys read released, then
+    ;; transition.  (sound_tick keeps the game-over drone ticking.)
+    jsr sound_tick
+    lda #$7f
+    sta $dc00
+    lda $dc01
+    and #$10
+    beq ov_held            ; SPACE still down
+    lda #$00
+    sta $dc02
+    lda $dc00
+    and #$10
+    tax
+    lda #$ff
+    sta $dc02
+    txa
+    beq ov_held            ; port-2 fire still down
 ov_restart:
     jsr restart
     ;; Game over → back to the splash title.  restart() already reset
@@ -587,24 +608,24 @@ go_txt:
     inx
     bne go_txt
 
-    ;; Prompt — "press fire to play again" at row 13, col 8 (24 chars,
-    ;; centred), lt.grey like the splash sub-prompt.  The colour pre-
+    ;; Prompt — "press fire" at row 13, col 15 (10 chars, centred),
+    ;; lt.grey like the splash sub-prompt.  The colour pre-
     ;; write above set row 13 white; this span is overwritten grey.
 go_next:
     ldx #0
 go_ptxt:
     lda over_prompt, x
     beq go_done
-    sta SCRN+$208+8, x
+    sta SCRN+$208+15, x
     lda #15
-    sta $da08+8, x
+    sta $da08+15, x
     inx
     bne go_ptxt
 go_done:
     rts
 
 over_text:  !scr "game over", 0
-over_prompt: !scr "press fire to play again", 0
+over_prompt: !scr "press fire", 0
 
 ;; ============================================================
 restart:
