@@ -63,6 +63,8 @@ ship_frame: !byte 0    ; ship animation frame (0-1)
 enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
 enemy_frame: !byte 0   ; enemy animation frame (0-3)
 boom_tmr:  !byte 0     ; death-boom countdown (0 = inactive, 60 = just died)
+bo_tmp:   !byte 0     ; boom_tick scratch (v2 sweep) — kept away from sfx_tmp
+                      ; which sfx_tick_all's multi-frame presets own
 tl_base:   !byte 0     ; title logo: first glyph code of current letter
 tl_tmp:    !byte 0     ; title logo scratch (6*letter_index)
 pwr_avail: !byte 0     ; invincibility charge available (0/1)
@@ -391,11 +393,11 @@ clr_col:
 do_play:
     lda #0
     sta c_saved          ; clear stale collision from previous frame
-    jsr pwr_check
     jsr enemy_do
     jsr score_do
     jsr collision_do
     jsr ast_collision
+    jsr pwr_check
     ;; --- Unified invincibility flash (powerup + post-hit) ---
     lda hit_timer
     beq .inv_off
@@ -421,6 +423,12 @@ do_play:
 ;; Powerup — fire/shift-triggered invincibility charge
 ;; ============================================================
 pwr_check:
+    ;; Only in PLAYING — runs after the collision checks in do_play, so a
+    ;; hit frame (state just changed to DYING) can never trigger the
+    ;; charge arp on the death boom.
+    lda state
+    cmp #GAME_PLAYING
+    bne .p_done
     ;; Fire (joystick port 2, active low)
     lda #$00
     sta $dc02            ; port A all inputs
@@ -463,6 +471,7 @@ pwr_check:
 .not_pressed:
     lda #1
     sta pwr_key          ; mark released
+.p_done:
     rts
 
 ;; ============================================================
@@ -502,6 +511,25 @@ die_count:
     sta state
     lda #0
     sta go_drawn
+    ;; Edge-resync pwr_key to the physical fire state: a press held
+    ;; through the dying window must NOT read as a fresh edge on the
+    ;; respawn frame (that fired the powerup arpeggio right after the
+    ;; death boom).  Only a release-then-press afterwards counts.
+    lda #$00
+    sta $dc02
+    lda $dc00
+    and #$10
+    tax
+    lda #$ff
+    sta $dc02
+    txa
+    bne .pwr_rel
+    lda #0
+    sta pwr_key
+    jmp dd_rts
+.pwr_rel:
+    lda #1
+    sta pwr_key
 dd_rts:
     rts
 
@@ -2455,8 +2483,11 @@ engine_do:
     sta SID_FREQ_HI_2
     lda #$08
     sta SID_ATK_DEC_2       ; attack 0, decay 8
-    lda #$80
-    sta SID_SUST_REL_2      ; sustain 8 (volume), release 0
+    lda #$8A
+    sta SID_SUST_REL_2      ; sustain 8 (volume), release 10 ($A) — the
+                            ; gate-off fades (~0.2 s) instead of clicking
+                            ; when the death boom takes the voice or the
+                            ; player stops moving
     lda #SID_WAVE_NOISE | SID_GATE_ON
     sta SID_CTRL_2
     rts
@@ -3145,8 +3176,10 @@ title_load:
 ;;                   into a deep rumble (computed from the 60-frame
 ;;                   countdown, clamped at $7E), sustain fades out
 ;;                   over the last 24 frames
-;;   voice 2 pulse:  hi byte $04 -> $40 — sub thump dropping from
-;;                   ~240 Hz to 60 Hz
+;;   voice 2 pulse:  hi byte $13 -> $04 — sub thump DROPPING from
+;;                   ~300 Hz to ~60 Hz (down, never up: an upward
+;;                   sweep rang out as a rising alarm siren on the
+;;                   "kill" — the reported static-death alarm)
 ;;   border:         red/white flash at 25 Hz for the first 40
 ;;                   frames, then back to normal (11)
 ;; Sweeps are plain STA stores — SID registers are write-only, so
@@ -3171,21 +3204,30 @@ death_boom:
     sta SID_SUST_REL_3       ; sustain F (loud), release 0
     lda #SID_WAVE_NOISE | SID_GATE_ON
     sta SID_CTRL_3
-    ;; Voice 2: pulse sub-drop, starts high (~240 Hz)
+    ;  Voice 2 (engine): gate it off cleanly — the boom no longer uses
+    ;; this voice, so a moving player's engine fade is smooth (the REL
+    ;; nibble is set engine-side) and the death sound is IDENTICAL in
+    ;; both cases: pulse thump (v1) + noise crack (v3), no waveform
+    ;; handoff on the voice the engine just used.
+    lda #SID_WAVE_NOISE
+    sta SID_CTRL_2          ; gate off — engine release fade takes over
+    ;; Voice 1: pulse sub-thump, starts ~300 Hz
     lda #$00
-    sta SID_PW_LO_2
+    sta SID_PW_LO_1
     lda #$08
-    sta SID_PW_HI_2
+    sta SID_PW_HI_1          ; PW = $0800 — 12.5% duty, the boom's punch
+                            ; (a swapped byte gave $0008 = hairline pulse,
+                            ; the "weak" version)
     lda #$00
-    sta SID_FREQ_LO_2
-    lda #$04
-    sta SID_FREQ_HI_2        ; ~240 Hz thump
+    sta SID_FREQ_LO_1
+    lda #$13
+    sta SID_FREQ_HI_1        ; ~304 Hz thump — boom_tick sweeps it DOWN
     lda #$00
-    sta SID_ATK_DEC_2
+    sta SID_ATK_DEC_1
     lda #$F0
-    sta SID_SUST_REL_2
+    sta SID_SUST_REL_1
     lda #SID_WAVE_PULSE | SID_GATE_ON
-    sta SID_CTRL_2
+    sta SID_CTRL_1
     rts
 
 boom_tick:
@@ -3213,13 +3255,24 @@ boom_tick:
     ;; cut the boom's noise mid-sweep
     lda #SID_WAVE_NOISE | SID_GATE_ON
     sta SID_CTRL_3
-    ;; Voice 2 pulse hi: $05 + elapsed (reaches $40 at the end)
+    ;; Voice 1 pulse hi: $13 - elapsed/4 — DROPS ~300 Hz -> 60 Hz.
+    ;; (An upward sweep made the "kill" ring out as a rising alarm
+    ;; siren after the noise crack faded — the reported static-death
+    ;; alarm.  Down = an explosion thud.)
     lda #60
     sec
     sbc boom_tmr
-    clc
-    adc #$05
-    sta SID_FREQ_HI_2
+    lsr
+    lsr
+    sta bo_tmp
+    lda #$13
+    sec
+    sbc bo_tmp
+    sta SID_FREQ_HI_1
+    ;; re-assert voice 1's gate too (sfx_gate_off manages voice 1 as
+    ;; well — a boop expiry must not cut the boom's thump)
+    lda #SID_WAVE_PULSE | SID_GATE_ON
+    sta SID_CTRL_1
 .bt_tail:
     ;; Fade the noise sustain over the last 24 frames (0..5)
     lda boom_tmr
@@ -3248,11 +3301,12 @@ boom_tick:
 .bt_done:
     rts
 .bt_off:
-    ;; Boom finished: silence both voices, normal border
+    ;; Boom finished: silence boom voices (1+3), normal border.
+    ;; Voice 2 is left alone — the engine resumes ownership there.
     lda #SID_WAVE_NOISE
     sta SID_CTRL_3
     lda #SID_WAVE_PULSE
-    sta SID_CTRL_2
+    sta SID_CTRL_1
     lda #11
     sta $d020
     rts

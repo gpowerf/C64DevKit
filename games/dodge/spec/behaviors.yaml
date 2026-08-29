@@ -172,8 +172,9 @@ behaviors:
 #   3. If TRANSITION: jump to do_transition (draw text, countdown)
 #   4. Else: keyboard + player animation + powerup HUD indicator +
 #            level_update + ast_update + radar_do
-#   5. If PLAYING: do_play (pwr_check, enemy_do, score_do, collision_do,
-#            ast_collision, invincibility flash)
+#   5. If PLAYING: do_play (enemy_do, score_do, collision_do,
+#            ast_collision, then pwr_check — powerup AFTER collisions so
+#            hit frames never arp, see System 17, invincibility flash)
 #   6. If DYING:   do_die (flash, timer, respawn or game over)
 #   7. If GAME_OVER: do_over (draw text, HUD stays, wait for fire → splash)
 #
@@ -412,7 +413,7 @@ behaviors:
 #          Else:              spawn at Y=60
 #        (This puts the enemy roughly opposite the player.)
 #     4. Play death boom via death_boom: layered two-voice explosion
-#        (voice 3 noise sweep + voice 2 pulse sub-drop, 60 frames)
+#        (voice 3 noise sweep + voice 1 pulse sub-drop, 60 frames)
 #        with a red/white border flash — see System 13.
 #     5. Set state = DYING, state_tmr = 150, flash_tmr = 0
 #     6. Return (skip asteroid check — state already changed)
@@ -838,7 +839,17 @@ behaviors:
 #     every frame from gstart:
 #       voice 3 noise sweeps $18 → $7E with the sustain fading
 #       over the last 24 frames;
-#       voice 2 pulse sub-drop sweeps $04 → $40;
+#       voice 1 pulse sub-thump SWEEPS DOWN $13 → $04 (~300 Hz
+#       → ~60 Hz).  The sweep must descend: an upward sweep
+#       ($04 → $40) showed the noise crack fading and left a
+#       pure RISING PULSE RING in silence — the reported
+#       "loud alarm" on static deaths (engine rumble masked it
+#       for moving players, so they only heard the crack).
+#       The boom lives on voices 1+3 — NEVER voice 2 (the
+#       engine's voice): a waveform handoff on the engine's
+#       voice made moving deaths audibly different.  The engine
+#       is gate-opped in death_boom and fades via its own
+#       release nibble (SUS/REL $8A on the engine write).
 #       sweeps are computed from the countdown and stored with
 #       plain STA — never INC a SID register (read-modify-write
 #       reads bus garbage on write-only registers);
@@ -877,7 +888,11 @@ behaviors:
 #   The framework LFSR (random) churns the low byte each frame
 #   (+0..$7F with carry) so the exhaust sounds alive instead of a
 #   static tone.  Attack 0/decay 8, sustain 8 (half volume),
-#   release 0 — gate-off silences instantly.  Idle (player_moving == 0)
+#   release 10 ($A) — gate-off FADES over ~0.2 s instead of clicking
+#   (a hard cut on the voice the death_boom used to take over heard as
+#   a zipper pop at the instant of a moving death; release fade + the
+#   boom moved off voice 2 makes the death sound identical moving or
+#   still).  Idle (player_moving == 0)
 #   or any non-PLAYING state gates it off.  do_transition gates it off
 #   explicitly because gstart is bypassed there.
 #   Voice 2 is never touched by sfx_gate_off (voices 1+3 only), so
@@ -1044,7 +1059,10 @@ behaviors:
 #   A loader level-start does NOT award charges (bypasses the
 #   score-threshold path).
 #
-# Trigger (pwr_check, called from do_play each PLAYING frame):
+# Trigger (pwr_check, called from do_play each PLAYING frame — AFTER
+# collision_do/ast_collision, so the death frame's state change to DYING
+# exits early and a hit frame can never play the charge arp over the
+# death boom):
 #   Reads FIRE:  $DC02 = $00 (all inputs), $DC00 bit 4, restore $FF.
 #   Reads SPACE (= keyboard fire): $7F → $DC00, $DC01 bit 4.
 #   Edge detection via pwr_key (press/release latch pattern):
@@ -1058,6 +1076,15 @@ behaviors:
 #     jsr sfx_powerup (ascending 4-note arpeggio, voice 1)
 #   Reusing hit_timer means collision_do and ast_collision need no
 #   changes — immunity is automatic.
+#
+# Death guard (do_die respawn path):
+#   pwr_key is edge-resynchronised to the physical fire state just
+#   before PLAYING resumes.  A press the player held through the
+#   150-frame dying window read as a FRESH edge on the respawn frame
+#   (pwr_key was left "released" at death), firing the powerup
+#   arpeggio right after the death boom — the reported "alarm at
+#   death, only when standing still" bug.  With the resync, only a
+#   deliberate release-then-press counts.
 #
 # Unified invincibility flash (end of do_play):
 #   While hit_timer > 0: pwr_flash counts 4-frame cycles; at 0 it

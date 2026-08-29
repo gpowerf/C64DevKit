@@ -49,6 +49,15 @@ def main() -> None:
     p_shot.add_argument("--out", "-o", default="shot.png", help="Output PNG path")
     p_shot.add_argument("--wait", "-w", type=float, default=3.0,
                         help="Seconds to let the game run before capturing")
+    p_audio = sub.add_parser("audio", help="Capture + fingerprint game audio (VICE sound via ALSA)")
+    p_audio.add_argument("--project", "-p", default=".", help="Project directory")
+    p_audio.add_argument("--scene", "-s", choices=["still", "moving"],
+                         default="still", help="Scripted scenario to drive")
+    p_audio.add_argument("--out", "-o", default="audio.wav", help="Output WAV path")
+    p_audio.add_argument("--duration", "-d", type=float, default=8.0,
+                         help="Record length in seconds")
+    p_audio.add_argument("--no-analyze", action="store_true",
+                         help="Skip the spectrogram fingerprint")
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
 
     args = parser.parse_args()
@@ -73,6 +82,9 @@ def main() -> None:
             cmd_clean(args.project)
         case "shot":
             cmd_shot(args.project, args.out, args.wait)
+        case "audio":
+            cmd_audio(args.project, args.scene, args.out, args.duration,
+                      not args.no_analyze)
         case "setup":
             cmd_setup()
         case _:
@@ -428,7 +440,9 @@ def cmd_shot(project_path: str, out_path: str, wait: float) -> None:
 
     Lets a model visually verify the running game: the emulator's X11
     window is grabbed with Xlib (no external screenshot tools needed)
-    and saved as a PNG the model can read.
+    and saved as a PNG the model can read.  Pair with a VISION-CAPABLE
+    model so the screenshots can actually be seen (see the README note
+    "Agent verification").
     """
     project_dir = Path(project_path).resolve()
     if not (project_dir / "c64devk.yaml").exists():
@@ -466,6 +480,32 @@ def cmd_shot(project_path: str, out_path: str, wait: float) -> None:
             sys.exit(1)
     finally:
         mon.kill_vice(proc)
+
+
+def cmd_audio(project_path: str, scene: str, out_path: str,
+              duration: float, analyze: bool) -> None:
+    """Capture + fingerprint the game's audio from a VICE session.
+
+    "Ears" for agent-driven sound work: records the real PCM output
+    (VICE -sound via ALSA) while a scripted scenario (a monitor-driven
+    still vs moving death) runs, then prints per-window RMS/peak/
+    centroid/tonality so sound states can be compared objectively.
+    Visualise with `c64devk shot` + a vision-capable model.
+    """
+    project_dir = Path(project_path).resolve()
+    if not (project_dir / "c64devk.yaml").exists():
+        print(f"Error: no c64devk.yaml found in '{project_dir}'", file=sys.stderr)
+        sys.exit(1)
+
+    cmd_build(project_path)
+
+    from .audio_diag import run as run_audio
+
+    try:
+        run_audio(project_dir, scene, Path(out_path), duration, analyze)
+    except SystemExit as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_setup() -> None:

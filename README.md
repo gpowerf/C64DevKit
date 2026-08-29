@@ -237,6 +237,28 @@ c64devk test           # Build + run static verification
 
 Additional tests go in `spec/tests.yaml`. Live VICE testing is supported when a display (or xvfb) is available, falling back to static mode automatically.
 
+### Agent verification (eyes and ears)
+
+The framework ships two tools for agent-driven verification of running
+code.  **Use a vision-capable model** so `shot` output can actually be
+seen (screenshots are useless to a text-only model), and use `audio`
+for anything you cannot see:
+
+```bash
+c64devk shot            # eyes: PNG of the game window (vision model required)
+c64devk audio --scene still   # ears: record + fingerprint the game's audio
+c64devk audio --scene moving  # compare a second scenario
+```
+
+`c64devk audio` drives a scripted scenario via the VICE monitor (a
+monitor-driven kill, still vs moving), records the real PCM output
+through ALSA, and prints a per-window spectrogram fingerprint
+(RMS / peak / centroid / tonality) so two sound states can be compared
+objectively — distinguishing, say, a rising alarm sweep from an
+explosion thud.  Requires `x64sc` with a working ALSA output, `arecord`,
+and (for analysis) numpy.  Without a vision model, pair with a human
+or use the numeric fingerprints alone.
+
 ## Architecture
 
 See `docs/ARCHITECTURE.md` for design decisions, data flow, and extension points.

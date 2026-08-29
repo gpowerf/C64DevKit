@@ -17,6 +17,95 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-29 · framework: `c64devk audio` — ears for agent-driven sound work
+
+- **What:** new `audio` subcommand (c64devk/audio_diag.py) — launches
+  VICE with `-sound` (ALSA), drives a scripted monitor scenario
+  (`--scene still|moving` — a monitor-driven kill with optional engine
+  rumble), records the real PCM output via `arecord`, and prints a
+  per-window spectrogram fingerprint (RMS / peak / centroid / tonality)
+  so two sound states can be compared objectively.  `launch_headless`
+  gained a `sound=` flag (default off — the silent test harness is
+  unchanged).  Requirements are checked and degrade gracefully
+  (arecord, numpy).
+- **Why:** headless agents cannot hear; the dodge death-sound bugs were
+  only root-caused once the real audio was captured and spectrogrammed
+  ("alarm" vs "explosion" became measurable).  `shot` already gave
+  eyes; this gives ears.
+- **Docs:** README "Agent verification" section — models should be
+  VISION-CAPABLE so `c64devk shot` images can be seen; SKILL.md notes
+  both senses.
+- **Commits:** (this change set)
+
+---
+
+## 2026-08-29 · death boom: one sound for moving and still (off the engine's voice)
+
+- **What:** after the sweep-down fix the user reported the STILL death
+  sounding much cooler than the MOVING death — same boom code, different
+  percept.  The coupon: the boom was still wired to voice 2, the very
+  voice the engine (thrust rumble) owns — a moving death hands the
+  voice from noise-rumble to pulse in one frame (zipper/click and a
+  masked onset), which never happens when still.  The boom now uses
+  voices 1+3 only: `death_boom` sets the pulse thump on voice 1
+  (PW $0800, hi $13, same downward sweep in `boom_tick` with a
+  per-frame gate re-assert — sfx_gate_off manages voice 1 too), gates
+  the engine off (`CTRL_2 = $80`) without touching its registers, and
+  `.bt_off` clears voices 1+3.  The engine's release nibble is now 10
+  ($8A) so its gate-off fades ~0.2 s instead of clicking.
+- **Why:** one death sound, identical by construction: there is no
+  longer a waveform handoff on the engine's voice, and the engine's
+  cut is a smooth fade in both cases.
+- **Verified:** audio capture + spectrogram of both cases — same boom
+  signature (broadband crack + low descending thump at 86–345 Hz), no
+  rising siren, no engine click.
+- **Commits:** (this change set)
+
+---
+
+## 2026-08-29 · death boom: voice-2 sweep down (alarm → explosion)
+
+- **Bug:** dying while standing still produced a loud rising ALARM;
+  moving deaths sounded like a small explosion.  Real root cause (found
+  by capturing VICE's audio output and spectrogram-matching): the death
+  boom's voice-2 pulse swept UP ($04 → $40 ≈ 240 Hz → 2 kHz) — a rising
+  siren by construction.  The noise crack fades over the boom's last 24
+  frames, so a silent screen was left ringing with the pure rising
+  pulse tail.  Static players (no engine rumble masking the hang) heard
+  the siren loud; the code comment even documented the intended
+  direction as a DROP.
+- **What:** `boom_tick` now sweeps voice 2 DOWN, $13 → $04 (~300 Hz →
+  ~60 Hz — an explosion thud; new `bo_tmp` scratch so the sweep does not
+  clobber `sfx_tmp` owned by the multi-frame presets); `death_boom`
+  starts it at $13.  Verified by audio capture + spectrogram: post-fix
+  both death types show a broadband crack + low descending thump, no
+  rising element.  The earlier arp-related guards remain as hardening.
+- **Commits:** (this change set)
+
+---
+
+## 2026-08-29 · powerup arp no longer plays on death (static-death alarm fix)
+
+- **Bug:** dying while standing still played the powerup arpeggio ("loud
+  alarm") instead of the death boom alone; moving deaths played only the
+  boom.  The charge (earned at level 3+) was kept through death, and the
+  `pwr_key` fire-edge latch survived the 150-frame dying window: a press
+  held/released around the hit read as a fresh released→pressed edge on
+  the death or respawn frame, so `pwr_check` consumed the charge and
+  played `sfx_powerup` over the boom.
+- **What:** two guards in the powerup path — (1) `pwr_check` moved to
+  run AFTER the collision checks in `do_play` with a `state == PLAYING`
+  early exit, so a hit frame can never trigger it; (2) the `do_die`
+  respawn path edge-resyncs `pwr_key` to the physical fire state, so a
+  press held through dying never debounces into an edge at respawn.
+  Deliberate release-then-press still spends the charge.  Verified live
+  via monitor tape: death frame and respawn both show `sfx_kind = 0`
+  and voice 1 idle; boom unchanged (SID timeline identical — no edits
+  to `death_boom`/`boom_tick`).
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-28 · game over: press-release gate before splash return
 
 - **Bug:** pressing fire/SPACE at the game-over screen booted a fresh

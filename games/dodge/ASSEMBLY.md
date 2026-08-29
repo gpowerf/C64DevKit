@@ -15,8 +15,8 @@ Lines 8–70     !byte variables     ← 49 game-state variables (incl. start_le
 Lines 69–73    Constants (GAME_PLAYING=0, GAME_DYING=1, GAME_OVER=2, GAME_SPLASH=3, GAME_TRANSITION=4)
 Lines 76–189   gstart:             ← frame dispatcher (jsr chain + state switch)
 Lines 212–385  init_once / do_init ← one-shot screen setup
-Lines 390–421  do_play + pwr_check ← PLAYING state + fire/shift powerup trigger
-Lines 470–507  do_die:             ← DYING state (flash + timer)
+Lines 390–477  do_play + pwr_check ← PLAYING state + fire/shift powerup trigger (after collisions)
+Lines 478–508  do_die:             ← DYING state (flash + timer; pwr_key edge-resync at respawn)
 Lines 508–629  do_over:            ← GAME_OVER state (draw + wait; fire → splash via release gate)
 Lines 630–750  restart:            ← reset all state on replay (level/speed/score → level 1 fresh start)
 Lines 751–937  keyboard_read:      ← WASD keyboard scan + joystick port 2
@@ -736,11 +736,20 @@ and FIRE (joystick port 2) or SPACE (keyboard fire) spends it for 2 seconds
 .no_charge:
 ```
 
-**Trigger** — `pwr_check` runs every PLAYING frame.  It reads both input
+**Trigger** — `pwr_check` runs every PLAYING frame (in `do_play`, AFTER
+the collision checks — a hit frame changes state to DYING before it
+runs, so the charge arp can never overlay the death boom).  It reads
+both input
 sources (fire via `$DC02=$00` input mode; SPACE via matrix line 7, bit 4 —
 the same read the splash uses) and combines them with the §4 edge-detection
 pattern: `pwr_key` is 0 while held, 1 when released, so a charge can
-never auto-fire while the button is held down.
+never auto-fire while the button is held down.  The `do_die` respawn
+path edge-resyncs `pwr_key` to the physical fire state, so a press held
+through the dying window doesn't fire the arp right after the death
+boom (defensive hardening — the real "alarm at death" was the death
+boom's own voice-2 PULSE sweeping UP, which read as a rising siren once
+the noise crack faded; it now sweeps down as an explosion thud, see
+`boom_tick`).
 
 ```asm
 .pressed:

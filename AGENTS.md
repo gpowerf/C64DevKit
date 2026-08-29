@@ -83,7 +83,16 @@ c64devk check               # Validate specs (no build)
 c64devk clean               # Remove output/
 c64devk doctor              # Check toolchain
 c64devk new <name>          # Scaffold new project
+c64devk shot                # Eyes: screenshot the game window (needs a vision-capable model)
+c64devk audio               # Ears: record + fingerprint game audio (ALSA; --scene still|moving)
 ```
+
+**Agent senses** — `shot` gives eyes, `audio` gives ears.  Run with a
+**vision-capable model** so `shot` PNGs can actually be read.  For
+sound, use `c64devk audio` (drives a scripted scenario, records PCM,
+prints a spectrogram fingerprint) — never trust hearing claims without
+capturing, and never guess at audio differences a spectrogram can
+prove.
 
 ### When Extending the Framework
 

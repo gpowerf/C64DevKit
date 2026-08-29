@@ -91,7 +91,7 @@ def _setup_roms(rom_dir: Path) -> None:
             os.symlink(str(src), str(dst))
 
 
-def launch_headless(prg_path: Path) -> subprocess.Popen | None:
+def launch_headless(prg_path: Path, sound: bool = False) -> subprocess.Popen | None:
     vice = find_vice()
     if not vice:
         print("Error: VICE (x64sc) not found", file=sys.stderr)
@@ -104,16 +104,17 @@ def launch_headless(prg_path: Path) -> subprocess.Popen | None:
         _setup_roms(rom_dir)
 
     init_addr = _read_init_from_prg(prg_path)
+    sound_args = ["-sound", "-sounddev", "alsa"] if sound else ["+sound"]
     args = [
         vice,
         "-remotemonitor",
-        "+sound",
+        *sound_args,
         "-autostartprgmode", "1",
         "-autostart", str(prg_path),
         "-keybuf", f"sys{init_addr}\r",
     ]
     return subprocess.Popen(args, cwd=str(rom_dir), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           start_new_session=True)
+                            start_new_session=True)
 
 
 def launch_debug(prg_path: Path) -> subprocess.Popen | None:

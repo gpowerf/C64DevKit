@@ -1291,6 +1291,26 @@ Fix the YAML and rebuild. No cryptic assembler errors.
 7. Run `c64devk run` to launch in VICE
 8. Iterate: modify spec or routines, rebuild, rerun
 
+### Verifying a running game (eyes and ears)
+
+An agent cannot see or hear the emulator by default — the framework
+provides both senses, and **a vision-capable model is required** for
+the visual one:
+
+- `c64devk shot` — saves the game's X11 window as a PNG.  Use it with
+  a vision-capable model so the image can actually be read; text-only
+  models gain nothing from it.
+- `c64devk audio --scene still|moving --out x.wav` — records the real
+  PCM output while a monitor-driven scenario plays, then prints a
+  spectrogram fingerprint (RMS / peak / centroid / tonality per
+  window).  Capturing an audio difference (a siren vs an explosion, a
+  note that should not be there) is exactly what "I hear something
+  different" means in a headless environment.  Requires ALSA, `arecord`
+  and numpy for the analysis step.
+
+Pair both when debugging behaviour: `shot` for the visual side,
+`audio` for the audible side.
+
 ### When the generated code doesn't do what's needed
 
 The `routines/` directory is the escape hatch. Write any 6502 assembly there. Files in `routines/` are copied but never overwritten by the build process. `game_logic.acme` is special — it's called every frame from the main loop.
