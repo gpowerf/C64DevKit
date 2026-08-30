@@ -51,7 +51,7 @@ def main() -> None:
                         help="Seconds to let the game run before capturing")
     p_audio = sub.add_parser("audio", help="Capture + fingerprint game audio (VICE sound via ALSA)")
     p_audio.add_argument("--project", "-p", default=".", help="Project directory")
-    p_audio.add_argument("--scene", "-s", choices=["still", "moving"],
+    p_audio.add_argument("--scene", "-s", choices=["still", "moving", "levelup"],
                          default="still", help="Scripted scenario to drive")
     p_audio.add_argument("--out", "-o", default="audio.wav", help="Output WAV path")
     p_audio.add_argument("--duration", "-d", type=float, default=8.0,

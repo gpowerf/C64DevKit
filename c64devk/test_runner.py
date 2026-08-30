@@ -293,48 +293,49 @@ def _try_live_test(prg_path: Path, sym_path: Path, test_path: Path, spec: "Proje
 
 def run_test_in_fresh_vice(prg_path: Path, sym_path: Path,
                            spec: "ProjectSpec", test: "TestCase") -> TestResult:
-    """Launch a fresh VICE instance for a single test case."""
+    """Launch a fresh VICE instance for a single test case.
+
+    Retries the launch when the headless autostart/keybuf race bites:
+    sometimes VICE never starts the program, so no breakpoint can ever
+    fire.  The readiness probe (run_until_break on the splash loop)
+    detects that and a fresh process is tried.
+    """
     from .vice_bridge import launch_headless, ViceMonitor, parse_symbols
-
-    proc = launch_headless(prg_path)
-    if not proc:
-        tr = TestResult(test_name=f"live:{test.name}")
-        tr.passed = False
-        tr.failures.append("VICE failed to start")
-        return tr
-
-    time.sleep(0.8)
-    if proc.poll() is not None:
-        tr = TestResult(test_name=f"live:{test.name}")
-        tr.passed = False
-        tr.failures.append(f"VICE exited with code {proc.poll()}")
-        return tr
-
-    monitor = ViceMonitor()
-    if not monitor.connect(timeout=5.0):
-        monitor.kill_vice(proc)
-        tr = TestResult(test_name=f"live:{test.name}")
-        tr.passed = False
-        tr.failures.append("connect failed")
-        return tr
 
     symbols = parse_symbols(sym_path)
     main_loop = symbols.get("main_loop", 0)
     if not main_loop:
-        monitor.kill_vice(proc)
         tr = TestResult(test_name=f"live:{test.name}")
         tr.passed = False
         tr.failures.append("no main_loop symbol")
         return tr
 
-    if not monitor.step_frame(main_loop, timeout=5.0):
+    proc = monitor = None
+    ready_label = symbols.get("splash_wait") or main_loop
+    for attempt in range(5):
+        proc = launch_headless(prg_path)
+        if not proc:
+            tr = TestResult(test_name=f"live:{test.name}")
+            tr.passed = False
+            tr.failures.append("VICE failed to start")
+            return tr
+        time.sleep(0.8)
+        if proc.poll() is not None:
+            continue  # launch died (autostart race) — try a fresh process
+        monitor = ViceMonitor()
+        if not monitor.connect(timeout=5.0):
+            monitor.kill_vice(proc)
+            continue
+        if monitor.run_until_break(ready_label, timeout=5.0):
+            break
         monitor.kill_vice(proc)
+        continue
+    else:
         tr = TestResult(test_name=f"live:{test.name}")
         tr.passed = False
-        tr.failures.append("sync failed")
+        tr.failures.append(f"sync failed after {attempt + 1} launch attempts")
         return tr
 
-    monitor.disable_breakpoints()
     tr = TestResult(test_name=f"live:{test.name}")
     _escape_splash(monitor, symbols, main_loop, test)
     if not test.start_in_splash:

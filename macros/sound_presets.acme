@@ -53,9 +53,13 @@ sfx_boop:
     rts
 
 ;; ============================================================
-;; sfx_coin — two-note ding: E5→A5 (triangle, voice 1)
+;; sfx_coin — level-up jingle: 4-note ascending sparkle
+;; (triangle, voice 1) — the old two-note ding was audibly
+;; missing in playtest (0.15 s, rms ~20 vs the boom's ~200).
 ;; ============================================================
 sfx_coin:
+    lda #0
+    sta sfx_dur           ; a pending radar-boop tail must not clip note 1
     lda #1
     sta sfx_kind
     lda #0
@@ -69,40 +73,41 @@ sfx_coin_tick:
     beq sfx_c_go
     rts
 sfx_c_go:
-    lda sfx_step
-    beq sfx_c_n1
-    lda #$00              ; note 2: A-5
-    sta SID_FREQ_LO_1
-    lda #$05
-    sta SID_FREQ_HI_1
-    lda #$09
-    sta SID_ATK_DEC_1
-    lda #$00
-    sta SID_SUST_REL_1
     lda #SID_WAVE_TRIANGLE | SID_GATE_ON
-    sta SID_CTRL_1
-    lda #6
-    sta sfx_dur           ; sfx_gate_off silences after the ring-out
+    sta SID_CTRL_1        ; re-assert every tick: an expiring sfx_dur
+                          ; (radar boop) must not cut the jingle
+    lda sfx_step
+    cmp #4
+    bcc sfx_c_note
+    ;; all four notes played: ring out the last note, stop ticking
+    lda #12
+    sta sfx_dur
     lda #0
-    sta sfx_kind          ; chime complete — stop ticking (the old
-                          ; code left kind set, re-playing the note
-                          ; every ~5 s forever)
+    sta sfx_kind          ; jingle complete (the old non-clearing kind
+                          ; re-played the note forever)
     rts
-sfx_c_n1:
-    lda #$00              ; note 1: E-5
+sfx_c_note:
+    asl                   ; step*2 → index into the freq table
+    tax
+    lda sfx_coin_freqs, x
     sta SID_FREQ_LO_1
-    lda #$07
+    lda sfx_coin_freqs+1, x
     sta SID_FREQ_HI_1
     lda #$09
     sta SID_ATK_DEC_1
-    lda #$00
-    sta SID_SUST_REL_1
+    lda #$F0
+    sta SID_SUST_REL_1    ; sustain F — HOLD the note at full volume
+                          ; (the old $00 decay-only envelope rang for
+                          ; ~0.2 s at rms ~40 = inaudible in play)
     lda #SID_WAVE_TRIANGLE | SID_GATE_ON
     sta SID_CTRL_1
     inc sfx_step
     lda #6
     sta sfx_tmp
     rts
+
+sfx_coin_freqs:
+    !word $0500, $0800, $0B00, $0F00   ; 4 ascending notes ~1.4k→4.0k Hz
 
 ;; ============================================================
 ;; sfx_hit — short noise impact (noise, voice 3)

@@ -861,10 +861,16 @@ behaviors:
 #     or the enemy-respawn sfx_explosion would die a frame later.
 #
 #   Level-up (score threshold and SPACE cheat):
-#     sfx_coin — voice 1, two-note triangle chime E-5 → A-5,
-#     6 frames per note.  The tick clears sfx_kind after note 2
-#     (a framework bug left it set, re-playing the note every
-#     ~5 s forever — audible over the death boom).
+#     sfx_coin — voice 1, 4-note ascending sparkle jingle
+#     ($0500/$0800/$0B00/$0F00 ≈ 1.4k → 2.1k → 3.0k → 4.1k Hz,
+#     6 frames per note, triangle, sustain $F0 — full volume per
+#     note, gate-off after the final note).  Each tick re-asserts
+#     CTRL_1 so an expiring sfx_dur (radar boop) cannot cut it, and
+#     sfx_coin clears
+#     sfx_dur at start (a pending boop tail cannot clip note 1).  The
+#     old decay-only envelope rang ~0.2 s at rms ~40 and read as
+#     "missing" in playtest (verified by audio capture + SID
+#     register tape).  The tick clears sfx_kind after note 4.
 #
 #   Game-over:
 #     sfx_drone — voice 1, low pulse rumble (~60 Hz), 30 frames.

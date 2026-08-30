@@ -475,6 +475,46 @@ class ViceMonitor:
         self._drain()
         return True
 
+    def frame(self, breakpoint_addr: int, timeout: float = 5.0) -> bool:
+        """Advance one frame by breaking at an address OTHER than the
+        parked PC.  Arm-then-g AT the parked address re-fires instantly
+        (no frame runs); track the last parked label and pass the other
+        one (see test_runner._exec_advance)."""
+        return self.run_until_break(breakpoint_addr, timeout=timeout)
+
+    def run_until_break(self, breakpoint_addr: int, timeout: float = 5.0) -> bool:
+        """Break+g at `breakpoint_addr` and wait for 'Stop on exec'.
+
+        The deterministic version of `step_frame` (which never
+        verifies the stop): sets a one-shot breakpoint, resumes, and
+        polls the socket until the monitor reports the break.  Also
+        used as a readiness probe: a FRESH headless launch may never
+        start the program (VICE's autostart+keybuf race) — probe
+        `splash_wait`/`main_loop` and retry the launch on False.
+        """
+        if not self._sock:
+            return False
+        import socket as _socket
+
+        self.disable_breakpoints()
+        self._drain()
+        self._sock.sendall(f"break ${breakpoint_addr:04X}\n".encode())
+        self._sock.sendall(b"g\n")
+        self._sock.settimeout(0.2)
+        buf = b""
+        t0 = time.time()
+        hit = False
+        while time.time() - t0 < timeout:
+            try:
+                buf += self._sock.recv(4096)
+            except (_socket.timeout, OSError):
+                pass
+            if b"Stop on exec" in buf:
+                hit = True
+                break
+        self.disable_breakpoints()
+        return hit
+
     def advance_frames(self, count: int, main_loop_addr: int, timeout_per_frame: float = 5.0) -> bool:
         """Advance N frames by stepping through breakpoints at main_loop.
 

@@ -151,34 +151,64 @@ def _drive(project: Path, scene: str, duration: float, out: Path) -> Path:
         rec = None
         if not driver.enter_playing(mon):
             raise SystemExit("audio: game never reached the play loop")
+        # sanity: the escape handover can report a stale stop — verify
+        # we are really in a PLAYING, initialised game
+        st = mon.peek(driver.addr("state"))
+        lv = mon.peek(driver.addr("level"))
+        if st != 0 or lv in (None, 255):
+            raise SystemExit(
+                f"audio: escape race (state={st} level={lv}) — rerun")
         ex = mon.peek(0xD002)
         ey = mon.peek(0xD001)
         nx, ny = (ex + 4) & 0xFF, (ey + 2) & 0xFF
-        if scene == "moving":
-            # a few parked frames with position deltas so the engine
-            # (thrust rumble) actually sounds before the kill
-            for j in range(10):
-                px = (nx + j) & 0xFF
-                mon.poke(0xD000, px)
-                mon.poke(0xD001, ny)
-                mon.poke(driver.addr("prev_x"), (px - 1) & 0xFF)
-                mon.poke(driver.addr("prev_y"), ny)
-                mon.poke(driver.addr("hit_timer"), 0)
-                driver._park(mon, "game_logic")
-        mon.poke(0xD000, nx)
-        mon.poke(0xD001, ny)
-        mon.poke(driver.addr("hit_timer"), 0)
-        mon.poke(driver.addr("pwr_avail"), 0)    # level-1 style: no charge
-        mon.poke(driver.addr("prev_x"), (nx - 1) & 0xFF if scene == "moving" else nx)
-        mon.poke(driver.addr("prev_y"), ny)
-        print(f"[audio] armed {scene}; free-running {duration:.0f}s")
+        if scene == "levelup":
+            # the escape's settle park stopped at the ENTRY of the
+            # do_init frame — let that frame complete BEFORE poking, or
+            # do_init clobbers the score threshold back to zero
+            driver._park(mon, "game_logic")
+            # put the score high byte past the level-2 threshold: the
+            # frame after the pokes levels up, plays the chime and
+            # enters the LEVEL X transition
+            mon.poke(driver.addr("score"), 0)
+            mon.poke(driver.addr("score") + 1, 10)
+            mon.poke(driver.addr("hit_timer"), 0)
+            mon.poke(driver.addr("pwr_avail"), 0)
+            # level = 1 is the boot start (no poke needed)
+            print("[audio] armed levelup (score hi=10 -> level-up on next frame)",
+                  flush=True)
+        else:
+            if scene == "moving":
+                # a few parked frames with position deltas so the engine
+                # (thrust rumble) actually sounds before the kill
+                for j in range(10):
+                    px = (nx + j) & 0xFF
+                    mon.poke(0xD000, px)
+                    mon.poke(0xD001, ny)
+                    mon.poke(driver.addr("prev_x"), (px - 1) & 0xFF)
+                    mon.poke(driver.addr("prev_y"), ny)
+                    mon.poke(driver.addr("hit_timer"), 0)
+                    driver._park(mon, "game_logic")
+            mon.poke(0xD000, nx)
+            mon.poke(0xD001, ny)
+            mon.poke(driver.addr("hit_timer"), 0)
+            mon.poke(driver.addr("pwr_avail"), 0)    # level-1 style: no charge
+            mon.poke(driver.addr("prev_x"), (nx - 1) & 0xFF if scene == "moving" else nx)
+            mon.poke(driver.addr("prev_y"), ny)
+            print(f"[audio] armed {scene}; free-running {duration:.0f}s")
         rec = _record(duration, out)
         mon.send("g")                            # free run through the kill
         time.sleep(duration - 0.5)
         # confirm the kill actually happened
         driver._park(mon, "game_logic")
         lives = mon.peek(driver.addr("lives"))
-        if lives is not None and lives < 3:
+        level = mon.peek(driver.addr("level"))
+        if scene == "levelup":
+            if level is not None and level >= 2:
+                print(f"[audio] level-up confirmed (level={level})")
+            else:
+                print(f"[audio] WARNING: no level-up detected (level={level})",
+                      file=sys.stderr)
+        elif lives is not None and lives < 3:
             print(f"[audio] kill confirmed (lives={lives})")
         elif lives is None:
             print("[audio] could not verify the kill (race?) — capture kept anyway",

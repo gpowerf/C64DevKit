@@ -39,6 +39,27 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-08-29 · level-up jingle: proof-first fix for the "missing" sound
+
+- **Proof (audio capture + SID register tape, before touching the
+  game):** the level-up sound existed — a two-note triangle ding
+  (E-5 → A-5, 6 frames/note, decay-only) — but was effectively
+  inaudible: ~0.15 s at rms ~20–50 versus the death boom's 200–800,
+  and its opening note could be clipped by a radar-boop sfx_dur tail
+  (voice 1 is shared; the boop's gate-off killed the chime's start).
+  A `levelup` scene was added to `c64devk audio` to prove it.
+- **What:** `sfx_coin` is now a 4-note ascending sparkle
+  ($0500/$0800/$0B00/$0F00 ≈ 1.4k → 4.1k Hz, 6 frames per note),
+  with per-tick CTRL_1 re-assertion (an expiring sfx_dur can't cut
+  it) and sfx_dur cleared at start.  Final note rings (sustain 6,
+  12-frame gate-off).  Verified post-fix by register tape
+  (kind=1 → note hi-bytes 05/08/0B/0F, one per 6 frames, CTRL_1=$11
+  every frame through the transition) and by audio capture
+  (ascending note components in the tone bands).
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-29 · death boom: one sound for moving and still (off the engine's voice)
 
 - **What:** after the sweep-down fix the user reported the STILL death
