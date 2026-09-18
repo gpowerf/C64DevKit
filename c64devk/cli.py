@@ -18,6 +18,7 @@ from .config import (
 )
 from .spec_parser import ProjectSpec
 from .codegen import run_build
+from . import thec64
 
 
 def main() -> None:
@@ -58,6 +59,94 @@ def main() -> None:
                          help="Record length in seconds")
     p_audio.add_argument("--no-analyze", action="store_true",
                          help="Skip the spectrogram fingerprint")
+
+    p_flags = sub.add_parser(
+        "flags",
+        help="Manage TheC64 filename flags on media files "
+             "(preview only unless --rename/--copy)")
+    p_flags.add_argument("files", nargs="+", metavar="FILE",
+                         help="Media file(s): .d64 .g64 .prg .tap .crt")
+    g_model = p_flags.add_mutually_exclusive_group()
+    g_model.add_argument("--c64", action="store_true",
+                         help="M6 — C64 model (THEC64 only)")
+    g_model.add_argument("--vic20", action="store_true",
+                         help="MV — VIC 20 model (THEC64 only)")
+    g_video = p_flags.add_mutually_exclusive_group()
+    g_video.add_argument("--ntsc", action="store_true", help="TN — NTSC video")
+    g_video.add_argument("--pal", action="store_true", help="TP — PAL video")
+    g_port = p_flags.add_mutually_exclusive_group()
+    g_port.add_argument("--j1", action="store_true",
+                        help="J1 — primary joystick port #1")
+    g_port.add_argument("--j2", action="store_true",
+                        help="J2 — primary joystick port #2")
+    g_mouse = p_flags.add_mutually_exclusive_group()
+    g_mouse.add_argument("--mouse1", action="store_true",
+                         help="P1 — 1351 mouse in port #1 (GEOS & co.)")
+    g_mouse.add_argument("--mouse2", action="store_true",
+                         help="P2 — 1351 mouse in port #2")
+    p_flags.add_argument("--extra-joysticks", action="store_true",
+                         help="JA — enable user-port joysticks #3/#4 (C64)")
+    p_flags.add_argument("--accurate-disk", action="store_true",
+                         help="AD — accurate disk mode (d64/g64)")
+    p_flags.add_argument("--read-only", action="store_true",
+                         help="RO — write-protect the disk (d64/g64)")
+    p_flags.add_argument("--continuation", action="store_true",
+                         help="CD — multi-disk continuation disk (not first)")
+    p_flags.add_argument("--full-height", action="store_true",
+                         help="FH — full-height display")
+    p_flags.add_argument("--no-icon", action="store_true",
+                         help="NI — hide the drive icon")
+    p_flags.add_argument("--no-audio-scale", action="store_true",
+                         help="NS — disable audio scaling")
+    p_flags.add_argument("--bank", type=int, choices=[0, 1, 2, 3, 5],
+                         action="append", metavar="N",
+                         help="B0-B5 — VIC 20 memory bank (repeatable)")
+    p_flags.add_argument("--reu", choices=["512", "2048", "16m"],
+                         help="R5/R2/RM — C64 REU size (fw >= 1.5.1)")
+    p_flags.add_argument("--set", metavar="FLAGS",
+                         help="Replace all flags with a raw string (e.g. M6TPR5P1)")
+    p_flags.add_argument("--strip", action="store_true",
+                         help="Remove the flag suffix entirely")
+    p_flags.add_argument("--explain", action="store_true",
+                         help="Decode the current flags and exit")
+    p_flags.add_argument("--rename", action="store_true",
+                         help="Rename the file(s) in place")
+    p_flags.add_argument("--copy", metavar="DIR",
+                         help="Copy the file(s) under the new name into DIR")
+
+    p_cjm = sub.add_parser(
+        "cjm",
+        help="Generate a TheC64 CJM configuration file "
+             "(virtual machine + joystick mapping)")
+    p_cjm.add_argument("--preset", choices=sorted(thec64.PRESETS),
+                       help="Start from a ready-made configuration")
+    g_cmodel = p_cjm.add_mutually_exclusive_group()
+    g_cmodel.add_argument("--c64", action="store_true", help="X:64")
+    g_cmodel.add_argument("--vic20", action="store_true", help="X:vic")
+    p_cjm.add_argument("--video", choices=["pal", "ntsc"], help="X:pal/ntsc")
+    p_cjm.add_argument("--reu", choices=["512", "2048", "16m"],
+                       help="REU size: reu512/reu2048/reu16384 (fw >= 1.5.1)")
+    p_cjm.add_argument("--option", action="append", metavar="OPT",
+                       help="Extra X: option (repeatable), e.g. accuratedisk")
+    p_cjm.add_argument("--vertical-shift", type=int, metavar="N",
+                       help="V: display shift (C64 -15..+17, VIC PAL "
+                            "-16..+16, VIC NTSC -13..0)")
+    p_cjm.add_argument("--port", type=int, choices=[1, 2, 3, 4],
+                       help="Joystick port for --buttons (default 1)")
+    p_cjm.add_argument("--buttons", metavar="JU,JD,...",
+                       help="15 comma-separated key IDs in manual order "
+                            "(up,down,left,right,fireL,fireR,TL,TR,"
+                            "lsh,rsh,A,B,C,lstick,rstick)")
+    p_cjm.add_argument("--mouse", type=int, choices=[1, 2],
+                       help="J:<n>M: — 1351 mouse in port 1 or 2")
+    p_cjm.add_argument("--name", metavar="BASE",
+                       help="Media basename -> BASE.cjm (must match the "
+                            "media filename)")
+    p_cjm.add_argument("--default", action="store_true",
+                       help="Write thec64-default.cjm (folder-wide settings)")
+    p_cjm.add_argument("--out", default=".", metavar="DIR",
+                       help="Output directory (default: current directory)")
+
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
 
     args = parser.parse_args()
@@ -85,6 +174,10 @@ def main() -> None:
         case "audio":
             cmd_audio(args.project, args.scene, args.out, args.duration,
                       not args.no_analyze)
+        case "flags":
+            cmd_flags(args)
+        case "cjm":
+            cmd_cjm(args)
         case "setup":
             cmd_setup()
         case _:
@@ -725,3 +818,202 @@ def _copy_tree(src: Path, dst: Path) -> None:
             _copy_tree(item, target)
         else:
             shutil.copy2(item, target)
+
+
+def _flags_from_options(args: argparse.Namespace) -> list[str]:
+    """Translate the long CLI options into flag codes."""
+    codes: list[str] = []
+    attr_to_code = {opt.lstrip("-").replace("-", "_"): code
+                    for opt, code in thec64.FLAG_LONG_OPTIONS}
+    for attr, code in attr_to_code.items():
+        if getattr(args, attr, False):
+            codes.append(code)
+    for bank in (args.bank or []):
+        codes.append(thec64.VIC_BANK_FLAGS[bank])
+    if args.reu:
+        codes.append(thec64.REU_FLAG_CHOICES[args.reu])
+    return codes
+
+
+def cmd_flags(args: argparse.Namespace) -> None:
+    """Create/inspect TheC64 filename flags on media files.
+
+    Without --rename or --copy the command is a preview: it only prints
+    what the flagged filename would be.
+    """
+    if args.explain and (args.rename or args.copy or args.set or args.strip):
+        print("Error: --explain cannot be combined with --rename, --copy, "
+              "--set or --strip", file=sys.stderr)
+        sys.exit(1)
+
+    adding = bool(_flags_from_options(args))
+    if args.strip and (adding or args.set):
+        print("Error: --strip cannot be combined with flag options or --set",
+              file=sys.stderr)
+        sys.exit(1)
+    if args.rename and args.copy:
+        print("Error: choose --rename or --copy, not both", file=sys.stderr)
+        sys.exit(1)
+
+    had_errors = False
+    for file_arg in args.files:
+        path = Path(file_arg)
+        if not path.exists():
+            print(f"Error: '{path}' does not exist", file=sys.stderr)
+            had_errors = True
+            continue
+
+        stem, flags, ext = thec64.split_flags(path.name)
+
+        if args.explain:
+            print(f"{path.name}:")
+            if not flags:
+                print("  (no filename flags)")
+            else:
+                for code in flags:
+                    print(f"  {code}  {thec64.FLAG_DESCRIPTIONS[code]}")
+            continue
+
+        if args.strip:
+            new_flags: list[str] = []
+        elif args.set:
+            try:
+                new_flags = thec64.parse_flag_string(args.set)
+            except ValueError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                had_errors = True
+                continue
+        else:
+            new_flags = thec64.dedupe_flags(flags + _flags_from_options(args))
+
+        new_name = thec64.build_flag_name(stem, new_flags, ext)
+        errors = thec64.validate_flags(new_flags, ext)
+
+        print(f"{path.name} -> {new_name}")
+        if not new_flags and not args.strip:
+            print("  (no flags specified — add options like --c64 --pal, "
+                  "see --help)")
+
+        sidecar = path.parent / f"{new_name.rsplit('.', 1)[0]}.cjm"
+        if sidecar.exists():
+            print(f"  note: {sidecar.name} exists — a CJM trumps filename "
+                  "flags on this file")
+
+        if errors:
+            for err in errors:
+                print(f"  Error: {err}", file=sys.stderr)
+            had_errors = True
+            continue
+
+        target = path.parent / new_name
+        if new_name == path.name:
+            print("  (unchanged)")
+            continue
+        if args.rename:
+            if target.exists():
+                print(f"  Error: '{target}' already exists", file=sys.stderr)
+                had_errors = True
+                continue
+            path.rename(target)
+            print(f"  renamed -> {target}")
+        elif args.copy:
+            copy_dir = Path(args.copy)
+            copy_dir.mkdir(parents=True, exist_ok=True)
+            dest = copy_dir / new_name
+            if dest.exists():
+                print(f"  Error: '{dest}' already exists", file=sys.stderr)
+                had_errors = True
+                continue
+            shutil.copy2(path, dest)
+            print(f"  copied -> {dest}")
+        else:
+            print("  (preview only — add --rename or --copy to apply)")
+
+    if had_errors:
+        sys.exit(1)
+
+
+def cmd_cjm(args: argparse.Namespace) -> None:
+    """Generate a TheC64 CJM configuration file."""
+    if args.preset:
+        config = thec64.CjmConfig(
+            computer=thec64.PRESETS[args.preset].computer,
+            video=thec64.PRESETS[args.preset].video,
+            options=list(thec64.PRESETS[args.preset].options),
+            vertical_shift=thec64.PRESETS[args.preset].vertical_shift,
+            joysticks=[
+                thec64.Joystick(port=j.port, primary=j.primary,
+                                buttons=list(j.buttons))
+                for j in thec64.PRESETS[args.preset].joysticks
+            ],
+            mouse=thec64.PRESETS[args.preset].mouse,
+        )
+    else:
+        config = thec64.CjmConfig()
+
+    if args.c64:
+        config.computer = "c64"
+    elif args.vic20:
+        config.computer = "vic20"
+    if args.video:
+        config.video = args.video
+    if args.reu:
+        config.computer = "c64"
+        config.options = [o for o in config.options
+                          if o not in thec64.CJM_X_C64]
+        config.options.append(thec64.REU_CHOICES[args.reu])
+    if args.option:
+        config.options.extend(args.option)
+    if args.vertical_shift is not None:
+        config.vertical_shift = args.vertical_shift
+    if args.mouse is not None:
+        config.mouse = args.mouse
+    if args.buttons:
+        entries = [b.strip().upper() for b in args.buttons.split(",")]
+        if len(entries) > 15:
+            print(f"Error: --buttons needs at most 15 entries (got "
+                  f"{len(entries)}) — order: "
+                  f"{', '.join(thec64.JOYSTICK_POSITIONS)}", file=sys.stderr)
+            sys.exit(1)
+        entries += [""] * (15 - len(entries))
+        port = args.port or 1
+        if config.joysticks:
+            config.joysticks = [thec64.Joystick(port=port, primary=True,
+                                                buttons=entries)]
+        else:
+            config.joysticks = [thec64.Joystick(port=port, primary=True,
+                                                buttons=entries)]
+    elif args.port and config.joysticks:
+        config.joysticks[0].port = args.port
+
+    errors = thec64.validate_cjm(config)
+    if errors:
+        for err in errors:
+            print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.default:
+        base = thec64.CJM_DEFAULT_FILENAME.removesuffix(".cjm")
+    elif args.name:
+        # The CJM basename must match the media filename exactly — keep
+        # any filename flags, drop only the media extension.
+        stem, flags, _ext = thec64.split_flags(args.name)
+        base = thec64.build_flag_name(stem, flags, "")
+    else:
+        print("Error: provide --name BASE (or --default for a folder-wide "
+              "thec64-default.cjm)", file=sys.stderr)
+        sys.exit(1)
+
+    content = config.generate()
+    if not content:
+        print("Error: nothing to write — give at least one option "
+              "(--preset, --video, --buttons, ...)", file=sys.stderr)
+        sys.exit(1)
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{base}.cjm"
+    out_path.write_text(content)
+    print(f"CJM written: {out_path}")
+    print()
+    print(content, end="")

@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Install C64DevKit as an OpenCode skill
+# Install C64DevKit skills as OpenCode skills
 set -e
 
-SKILL_DIR="$HOME/.config/opencode/skills/c64devk"
+SKILL_DIR="$HOME/.config/opencode/skills"
 FRAMEWORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-mkdir -p "$SKILL_DIR"
-ln -sf "$FRAMEWORK_DIR/skills/SKILL.md" "$SKILL_DIR/SKILL.md"
-echo "Installed c64devk skill to $SKILL_DIR/SKILL.md"
+install_skill() {
+    local name="$1"
+    mkdir -p "$SKILL_DIR/$name"
+    ln -sf "$FRAMEWORK_DIR/skills/$name/SKILL.md" "$SKILL_DIR/$name/SKILL.md"
+    echo "Installed $name skill to $SKILL_DIR/$name/SKILL.md"
+}
+
+install_skill c64devk
+install_skill thec64
+
 echo "Framework at: $FRAMEWORK_DIR"
 echo ""
 echo "Add to your PATH: export PATH=\"\$PATH:$FRAMEWORK_DIR/bin\""

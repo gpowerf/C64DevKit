@@ -7,6 +7,8 @@ description: Spec-driven Commodore 64 development framework. Use when the user a
 
 C64DevKit is a spec-driven development framework for the Commodore 64. Users define their program in YAML specs. The framework generates 6502 assembly via ACME and produces a runnable `.prg` file for VICE.
 
+For preparing programs for THEC64/THEVIC20 hardware (filename flags, CJM files, REU, joystick remapping), see the separate **thec64** skill (`skills/thec64/SKILL.md`) and the tools `c64devk flags` / `c64devk cjm`.
+
 ## Installation
 
 ```bash

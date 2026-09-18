@@ -17,6 +17,42 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-09-18 · framework: TheC64 kit — `c64devk flags` + `c64devk cjm`
+
+- **What:** new TheC64 customization kit implementing both official
+  THEC64/THEVIC20 media-customization formats (fw v1.6.1 manual, ch. 8)
+  in a shared spec core (`c64devk/thec64.py`).  `c64devk flags` parses,
+  merges, validates and applies two-character filename flags
+  (M6/MV, TN/TP, J1/J2, JA, P1/P2, AD/RO/CD, FH, B0–B5, R5/R2/RM,
+  NI/NS) — preview by default, with `--rename`, `--copy DIR`,
+  `--strip` and `--explain` modes; validation rejects conflicting or
+  model/extension-gated flags with manual-derived messages and warns
+  when a same-basename CJM would trump the flags.  `c64devk cjm`
+  generates CJM sidecar files from presets (`joystick`, `wasd`,
+  `two-stick`, `geos`) or explicit options (model, video, REU, X
+  options, 15-position `J:` button maps with key-ID validation, mouse
+  markers, `V:` ranges) and writes exact-basename `.cjm` files or
+  `thec64-default.cjm`.  Docs: `docs/thec64-flags.md` +
+  `docs/thec64-cjm.md` (full tables, precedence rules, flags-vs-CJM
+  decision guide, GEOS 2.0 worked example).  New **thec64** skill
+  (`skills/thec64/SKILL.md`, installed via the updated
+  `bin/install-skill`, which now links both skills); c64devk skill
+  cross-references it.  Tests: `tests/test_thec64.py` (44 cases:
+  flag parsing/validation/round-trips, CJM generation/validation,
+  CLI integration incl. rename/copy/strip on tmp_path fixtures).
+- **Why:** deploying c64devk-built programs (and other media) to real
+  TheC64 hardware needs per-file configuration — REU, video, joystick
+  remapping — and both official mechanisms are error-prone by hand
+  (exact-basename CJM matching, 15-position button order, lowercase X
+  values, flag conflicts, CJM-trumps-flags precedence).  Tools make it
+  deterministic and validated; the skill lets agents drive them.
+- **Verification:** `python3 -m pytest tests/` — 87 passed (44 new);
+  smoke-tested GEOS preset CJM generation, flag preview/rename/explain
+  against the v1.6.1 manual's examples.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-08-30 · asteroid spin: rocks tumble on a 3-frame rotation cycle
 
 - **What:** every asteroid rotates while it flies.  Two new frames
