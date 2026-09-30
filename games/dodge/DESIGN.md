@@ -1,11 +1,15 @@
 # Sprite Dodge — Game Design
 
 ## Controls
-Joystick only — the keyboard was removed deliberately: TheC64 classic
-mode injects the controller into port 1 as well as port 2, and port-1
-stick lines share CIA1 port B with the keyboard rows, so any keyboard
-matrix scan read phantom keys (held DOWN stick grounded PB1, which the
-W scan read as "up": "down is up").
+Joystick only, **Control Port 2** — the keyboard was removed
+deliberately: TheC64 classic mode injects the controller into port 1
+as well as port 2, and port-1 stick lines share CIA1 port B with the
+keyboard rows, so any keyboard matrix scan read phantom keys (held
+DOWN stick grounded PB1, which the W scan read as "up": "down is up").
+**TheC64 classic mode actually injects port 1 only** (a port-2-only
+build's stick is dead there), so the disk ships with the `J2` filename
+flag (`LastGalaxy_J2.d64`) — keep the suffix if renaming.  Carousel
+mode and VICE default to port 2 anyway.
 - **FIRE** (joystick port 2) — start game from the splash, restart (game over), confirm in menus, trigger powerup charge
 - **Stick** — move player
 - **Hold DOWN** on the splash (45 frames) — opens the cracked-menu

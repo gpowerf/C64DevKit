@@ -227,14 +227,22 @@ behaviors:
 # System 3 — Player Input (input_read)
 # =============================================================================
 #
-# JOYSTICK ONLY.  The keyboard was removed deliberately: TheC64 classic
-# mode (fw 1.6.1) injects the controller into port 1 as well as port 2,
-# and port-1 stick lines share CIA1 port B with the keyboard rows.  Any
-# keyboard matrix scan therefore reads phantom keys — a held DOWN stick
-# grounds row PB1 and the W scan (PA1/PB1) read it as "up": the reported
-# "down is up" fault in classic mode.  PC VICE injects only the
-# configured port and was unaffected.  With no keyboard scan left
+# JOYSTICK ONLY, PORT 2.  The keyboard was removed deliberately: TheC64
+# classic mode (fw 1.6.1) injects the controller into port 1 as well as
+# port 2, and port-1 stick lines share CIA1 port B with the keyboard
+# rows.  Any keyboard matrix scan therefore reads phantom keys — a held
+# DOWN stick grounds row PB1 and the W scan (PA1/PB1) read it as "up":
+# the reported "down is up" fault in classic mode.  PC VICE injects only
+# the configured port and was unaffected.  With no keyboard scan left
 # anywhere, port-1 grounding cannot reach gameplay input.
+#
+# PORT REQUIREMENT (hardware-verified on TheC64 fw 1.6.1): classic mode
+# injects the controller into PORT 1 ONLY — a port-2-only build's stick
+# is completely dead there (observed after this change), while carousel
+# mode defaults to port 2.  The disk therefore ships with the J2
+# filename flag (LastGalaxy_J2.d64), which forces port 2 in both modes.
+# If the file is ever renamed, the _J2 suffix must be kept.  See
+# c64devk flags / docs/thec64-flags.md.
 #
 # Input source:
 #   Joystick:  Port 2 via CIA1 PRA read   ($DC00, active low)
