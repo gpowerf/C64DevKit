@@ -2610,6 +2610,11 @@ menu_wait:
     eor #$ff
     and menu_joy
     sta menu_joy          ; menu_joy now = newly pressed bits only
+    lda menu_raw
+    sta menu_prev         ; prev ALWAYS tracks the raw state — otherwise a
+                          ; direction held across menu entry (hold-DOWN
+                          ; opened the loader!) latches into prev forever
+                          ; and that direction can never fire an edge again
     ;; Down edge (bit 1): highlight +1 (max 4)
     lda menu_joy
     and #$02
@@ -2661,16 +2666,12 @@ menu_wait:
     sta menu_hold
     jmp .m_back
 .m_conf:
-    lda menu_joy
-    sta menu_prev
     lda menu_sel
     clc
     adc #1
     sta start_level
     jmp ds_start
 .m_draw:
-    lda menu_joy
-    sta menu_prev
     jsr menu_marker
     jmp menu_wait
 .m_back:
