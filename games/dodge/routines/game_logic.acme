@@ -1,6 +1,6 @@
 ;; game_logic.acme — Sprite Dodge: full game logic
 ;; HUD text/numbers handled by behavior DSL (see behaviors.yaml).
-;; This file: keyboard, enemy AI, collision, state machine, sound.
+;; This file: joystick input, enemy AI, collision, state machine, sound.
 
     jmp gstart
 
@@ -23,7 +23,7 @@ go_drawn:   !byte 0
 speed_ctr:  !byte 0
 last_safe:  !byte 0
 player_dir: !byte 0    ; 0=right 1=left 2=up 3=down
-player_moving: !byte 0 ; set by keyboard_read when position changed this frame
+player_moving: !byte 0 ; set by input_read when position changed this frame
 prev_x: !byte 0        ; sprite 0 X last frame (movement detection)
 prev_y: !byte 0        ; sprite 0 Y last frame (movement detection)
 dmz_seed:   !byte $5A  ; LFSR seed for DMZ noise
@@ -71,7 +71,10 @@ tl_base:   !byte 0     ; title logo: first glyph code of current letter
 tl_tmp:    !byte 0     ; title logo scratch (6*letter_index)
 pwr_avail: !byte 0     ; invincibility charge available (0/1)
 pwr_flash: !byte 0     ; flash cycle counter during invincibility
-pwr_key:   !byte 0     ; fire/space edge state (0=held, 1=released)
+pwr_key:   !byte 0     ; fire edge state (0=held, 1=released)
+splash_hold: !byte 0   ; stick-DOWN hold counter on the splash (loader gesture)
+menu_hold: !byte 0     ; stick-LEFT hold counter in the loader (back gesture)
+menu_raw:  !byte 0     ; raw stick state in the loader (hold detection)
 pad:        !byte 0    ; guard byte — prevents writes from hitting gstart
 
 GAME_PLAYING    = 0
@@ -96,7 +99,7 @@ g0:
     bne g0a
     jmp do_transition
 g0a:
-    jsr keyboard_read
+    jsr input_read
     jsr anim_update
     jsr engine_do
     ;; Set sprite 0 pointer = $D0 + player_dir + ship_frame * 5
@@ -436,17 +439,6 @@ pwr_check:
     sta $dc02            ; port A all inputs
     lda $dc00
     and #$10             ; bit 4: fire
-    bne .fire_up
-    jmp .pressed
-.fire_up:
-    lda #$ff
-    sta $dc02            ; restore port A outputs
-    ;; SPACE = keyboard fire (matrix line 7, bit 4 — same read as the
-    ;; splash start check)
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10
     bne .not_pressed
 .pressed:
     lda #$ff
@@ -471,6 +463,8 @@ pwr_check:
 .p_held:
     rts
 .not_pressed:
+    lda #$ff
+    sta $dc02            ; restore port A outputs
     lda #1
     sta pwr_key          ; mark released
 .p_done:
@@ -558,12 +552,6 @@ do_over:
 
 ov_wait:
     jsr sound_tick
-    ;; Check SPACE
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10
-    beq ov_held
     ;; Check joystick port 2 fire
     lda #$00
     sta $dc02
@@ -576,16 +564,11 @@ ov_wait:
     bne ov_done
 ov_held:
     ;; Release gate — the press detected above is still physically down.
-    ;; Entering the splash right away re-triggers the splash's own fire/
-    ;; SPACE start check a frame later, skipping the title and booting a
-    ;; fresh level-1 game.  Wait until BOTH keys read released, then
+    ;; Entering the splash right away re-triggers the splash's own fire
+    ;; start check a frame later, skipping the title and booting a
+    ;; fresh level-1 game.  Wait until fire reads released, then
     ;; transition.  (sound_tick keeps the game-over drone ticking.)
     jsr sound_tick
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10
-    beq ov_held            ; SPACE still down
     lda #$00
     sta $dc02
     lda $dc00
@@ -594,14 +577,16 @@ ov_held:
     lda #$ff
     sta $dc02
     txa
-    beq ov_held            ; port-2 fire still down
+    beq ov_held            ; fire still down
 ov_restart:
+    lda #0
+    sta splash_hold
     jsr restart
     ;; Game over → back to the splash title.  restart() already reset
     ;; all game state (score, lives, level, positions, asteroids); force
     ;; the splash block to re-render (splash_done = 0) and let gstart's
-    ;; SPLASH dispatch take over next frame.  The splash's own fire/
-    ;; SPACE path then starts a fresh level-1 game via do_init.
+    ;; SPLASH dispatch take over next frame.  The splash's own fire
+    ;; path then starts a fresh level-1 game via do_init.
     lda #GAME_SPLASH
     sta state
     lda #0
@@ -779,87 +764,18 @@ rest_clr:
     rts
 
 ;; ============================================================
-;; Keyboard — WASD, 9-bit X positioning with bounds
+;; Input — joystick port 2, 9-bit X positioning with bounds
+;; JOYSTICK ONLY: keyboard scans were removed because TheC64
+;; classic mode injects the controller into port 1 too, and port-1
+;; stick lines share CIA1 port B with the keyboard rows — any
+;; column-driven scan reads phantom keys (held DOWN stick grounded
+;; PB1, which the W scan read as "up": "down is up").  See
+;; behaviors.yaml System 3.
 ;; ============================================================
-keyboard_read:
+input_read:
     lda #0
     sta joystick_state
 
-    lda #$fd
-    sta $dc00
-    lda $dc01
-    and #$02
-    bne k1
-    lda $d001
-    cmp #58
-    bcc k1
-    beq k1
-    dec $d001
-    lda #2
-    sta player_dir
-k1:
-    lda #$fd
-    sta $dc00
-    lda $dc01
-    and #$20
-    bne k2
-    lda $d001
-    cmp #229
-    bcs k2
-    inc $d001
-    lda #3
-    sta player_dir
-k2:
-    lda #$fd
-    sta $dc00
-    lda $dc01
-    and #$04
-    bne k3
-    lda $d000
-    cmp #24
-    bne .do_left
-    lda $d010
-    and #$01
-    beq k3
-.do_left:
-    lda #1
-    sta player_dir
-    lda $d000
-    bne .dec_left
-    lda $d010
-    and #$01
-    beq k3
-    dec $d010
-    dec $d000
-    jmp k3
-.dec_left:
-    dec $d000
-k3:
-    lda #$fb
-    sta $dc00
-    lda $dc01
-    and #$04
-    bne kdone
-    lda $d000
-    cmp #64
-    bcc .do_right
-    lda $d010
-    and #$01
-    bne kdone
-.do_right:
-    lda #0
-    sta player_dir
-    lda $d000
-    cmp #255
-    bne .inc_right
-    inc $d000
-    lda $d010
-    ora #$01
-    sta $d010
-    jmp kdone
-.inc_right:
-    inc $d000
-kdone:
     ;; --- Joystick port 2 (active low, invert to active high) ---
     lda #$00
     sta $dc02            ; set port A all inputs (joystick read mode)
@@ -2497,7 +2413,7 @@ chk_sid:
 ;; $2000 boundary when the code grew and got overwritten by ship_r.spr.)
 * = $2900
 ds_press:  !scr "press fire to play", 0
-ds_hint:   !scr "m: level select", 0
+ds_hint:   !scr "hold down: levels", 0
 ds_credit: !scr "gpowerf 2026", 0
 
 ;; ============================================================
@@ -2591,39 +2507,39 @@ splash_wait:
     ;; custom glyphs; one frame later this restores them.
     jsr title_load
 
-    ;; Keyboard fire — SPACE (matrix line 7, bit 4) starts at level 1
-    ;; (NO digit detection here: the harness itself types "sys2061\r"
-    ;; at boot, so a splash-level digit scan would snatch the "1" of
-    ;; "2061" and auto-start the game while keys are still trickling
-    ;; in.  Level selection is F1 → loader only.)
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10             ; 0 = SPACE pressed
-    bne .ds_nospace
-    jmp ds_start
-.ds_nospace:
-
-    ;; M (matrix line 4, bit 4) — level-select loader.  Deliberately NOT
-    ;; F1: line 0 is RETURN's line and the harness types "sys2061\r" at
-    ;; boot — a per-frame line-0 scan collides with that CR delivery.
-    ;; Line 4 carries no keystroke of the boot typing.
-    lda #$ef
-    sta $dc00
-    lda $dc01
-    and #$10
-    beq .ds_loader
-
-    ;; Check joystick port 2 fire
+    ;; Joystick port 2 (active low → invert to active high)
     lda #$00
     sta $dc02            ; set port A all inputs
     lda $dc00
-    and #$10             ; 0 = fire pressed
-    tax                  ; save fire state
+    eor #$ff
+    tax                  ; active-high stick state
     lda #$ff
-    sta $dc02            ; restore keyboard mode
+    sta $dc02            ; restore keyboard-drive mode
+
+    ;; FIRE (bit 4) starts at level 1
     txa
-    beq ds_start         ; fire pressed → start
+    and #$10
+    beq .ds_nofire
+    jmp ds_start         ; fire pressed → start
+.ds_nofire:
+
+    ;; HOLD DOWN 45 frames → level-select loader (replaces keyboard M;
+    ;; keyboard removed — TheC64 classic-mode port-1 bleed, see spec)
+    txa
+    and #$02
+    bne .ds_down
+    lda #0
+    sta splash_hold      ; DOWN released — reset the gesture
+    jmp .ds_hook
+.ds_down:
+    inc splash_hold
+    lda splash_hold
+    cmp #45
+    bcc .ds_hook         ; not held long enough yet
+    lda #0
+    sta splash_hold
+    jmp .ds_loader
+.ds_hook:
     ;; Testability hook: if state was changed externally (VICE monitor
     ;; tests poke state), exit the splash loop.  Inert during real play —
     ;; nothing in the game itself writes state while splashing.
@@ -2641,9 +2557,8 @@ splash_wait:
     jmp menu_wait
 
 ds_start:
-    ;; Fire/space start (level 1; start_level is set by the level-select
-    ;; plumbing — loader UI lands in a follow-up change).  Border back
-    ;; to the dark grey of the game.
+    ;; Fire start (level 1; start_level is set by the loader UI).
+    ;; Border back to the dark grey of the game.
     lda #11
     sta $d020
     lda start_level
@@ -2675,60 +2590,7 @@ menu_wait:
     lda #0
     sta frame_ready
 
-    ;; digits 1-5 (lines 7/7/1/1/2, bits 0/3/0/3/0)
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$01
-    bne .m_k2
-    lda #1
-    jmp .m_pick
-.m_k2:
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$08
-    bne .m_k3
-    lda #2
-    jmp .m_pick
-.m_k3:
-    lda #$fd
-    sta $dc00
-    lda $dc01
-    and #$01
-    bne .m_k4
-    lda #3
-    jmp .m_pick
-.m_k4:
-    lda #$fd
-    sta $dc00
-    lda $dc01
-    and #$08
-    bne .m_k5
-    lda #4
-    jmp .m_pick
-.m_k5:
-    lda #$fb
-    sta $dc00
-    lda $dc01
-    and #$01
-    bne .m_fl
-    lda #5
-.m_pick:
-    sta start_level
-    jmp ds_start
-
-.m_fl:
-    ;; F1 (line 0, bit 4) back to the splash — post-boot, so a line-0
-    ;; scan here is safe (the boot typing is long finished)
-    lda #$fe
-    sta $dc00
-    lda $dc01
-    and #$10
-    bne .m_noF1
-    jmp .m_back
-.m_noF1:
-    ;; Joystick port 2 (active low → invert) for up/down/fire.
+    ;; Joystick port 2 (active low → invert) for up/down/fire/hold-left.
     ;; Edge detection against menu_prev: floating/unplugged lines can
     ;; read low at random, and a stuck line would otherwise confirm
     ;; instantly — only NEWLY pressed bits act, and the armed first
@@ -2737,7 +2599,8 @@ menu_wait:
     sta $dc02
     lda $dc00
     eor #$ff
-    sta menu_joy
+    sta menu_raw          ; raw state — drives the hold-left gesture
+    sta menu_joy          ; becomes the pressed-edge mask below
     lda #$ff
     sta $dc02
     lda menu_armed
@@ -2772,22 +2635,31 @@ menu_wait:
     beq .m_noconf
     jmp .m_conf
 .m_noconf:
-    jmp .m_spc
+    jmp .m_hold
 .m_arm:
     lda menu_joy
     sta menu_prev         ; sample the idle state
     lda #1
     sta menu_armed
-    jmp .m_spc
-.m_spc:
-    ;; SPACE = keyboard fire: confirms too (keyboard lines are driven,
-    ;; no floating-line issue — direct read, no edge needed)
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10
-    beq .m_conf
+    jmp .m_hold
+.m_hold:
+    ;; HOLD LEFT 45 frames → back to the splash (replaces keyboard F1)
+    lda menu_raw
+    and #$04
+    bne .m_lheld
+    lda #0
+    sta menu_hold         ; LEFT released — reset the gesture
     jmp menu_wait
+.m_lheld:
+    inc menu_hold
+    lda menu_hold
+    cmp #45
+    bcs .m_lback
+    jmp menu_wait         ; not held long enough yet
+.m_lback:
+    lda #0
+    sta menu_hold
+    jmp .m_back
 .m_conf:
     lda menu_joy
     sta menu_prev
@@ -2802,6 +2674,8 @@ menu_wait:
     jsr menu_marker
     jmp menu_wait
 .m_back:
+    lda #0
+    sta splash_hold       ; clear any partial hold-down gesture
     lda #11
     sta $d020
     jsr draw_splash
@@ -3388,6 +3262,6 @@ menu_i2:  !scr "2 .. start at level 2", 0
 menu_i3:  !scr "3 .. start at level 3", 0
 menu_i4:  !scr "4 .. start at level 4", 0
 menu_i5:  !scr "5 .. start at level 5", 0
-menu_ft:  !scr "fire/space play  1-5 jump  f1 back", 0
+menu_ft:  !scr "fire: play   hold left: back", 0
 
 

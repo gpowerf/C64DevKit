@@ -60,7 +60,7 @@ tests:
   # The loader's key matrix reads can't be driven through the monitor
   # harness, so this exercises the applied path: the splash stores the
   # chosen level in start_level and the testability hook (state poke)
-  # takes the same exit path as fire/SPACE.  score sits 2 bytes after
+  # takes the same exit path as fire.  score sits 2 bytes after
   # the "score" label per variable order — checked via addr.
   - name: level_select_starts_at_picked_level
     start: splash
@@ -337,7 +337,7 @@ tests:
       - advance: 1
       - check: {what: memory, label: level, eq: 4}   # not reset until fire
 
-  # The fire/SPACE → splash transition is verified manually: VICE's CIA
+  # The fire → splash transition is verified manually: VICE's CIA
   # refreshes $DC00/$DC01 from emulated hardware, so monitor pokes of the
   # key registers are overwritten before the frame reads them — no
   # key-injection path exists in the harness.

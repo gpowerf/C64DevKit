@@ -19,7 +19,7 @@ Lines 390–477  do_play + pwr_check ← PLAYING state + fire/shift powerup trig
 Lines 478–508  do_die:             ← DYING state (flash + timer; pwr_key edge-resync at respawn)
 Lines 508–629  do_over:            ← GAME_OVER state (draw + wait; fire → splash via release gate)
 Lines 630–750  restart:            ← reset all state on replay (level/speed/score → level 1 fresh start)
-Lines 751–937  keyboard_read:      ← WASD keyboard scan + joystick port 2
+Lines 751–937  input_read:        ← joystick port 2 scan (keyboard removed)
 Lines 938–1032 enemy_do:           ← enemy chase AI
 Lines 1033–1105 score_do:          ← zone-based scoring
 Lines 1106–1199 collision_do:      ← player–enemy collision
@@ -159,7 +159,7 @@ X entirely in software (`ast_x[3]`) with `ast_msb` for the overflow bit.
 
 ### 4. Edge Detection (Press vs Hold)
 
-Reads the keyboard or joystick and detects the *transition* from not-pressed
+Reads the joystick and detects the *transition* from not-pressed
 to pressed — avoids re-triggering every frame while held.
 
 ```asm
@@ -192,7 +192,7 @@ in_down:
 ```
 
 The dodge game uses this pattern in three places:
-- `pwr_check` — fire/SPACE keyboard-fire edge (`pwr_key`)
+- `pwr_check` — fire edge (`pwr_key`)
 - Sound demo — preset cycling (`btn_was`)
 - Radar ping — indicator appears (`radar_was`)
 
@@ -318,28 +318,16 @@ frame of indirection.  The `jmp` keeps the stack depth constant.
 
 ## Subsystem Walkthroughs
 
-### Player Input (`keyboard_read`)
+### Player Input (`input_read`)
 
-**Both keyboard and joystick are active simultaneously.**  There's no
-exclusive mode — moving with WASD then grabbing the joystick just works.
-
-**Keyboard scan** uses CIA1 column-write / row-read:
-```asm
-    ;; W (UP): column 1 ($FD), row 1 ($02)
-    lda #$fd
-    sta $dc00             ; pull column 1 low
-    lda $dc01             ; read rows
-    and #$02              ; row 1 = W key
-    bne k1                ; not pressed → next check
-
-    ;; W pressed → move up
-    lda $d001             ; player Y
-    cmp #58               ; upper bound
-    bcc k1
-    dec $d001
-    lda #2
-    sta player_dir        ; update directional sprite
-```
+**JOYSTICK ONLY.**  The keyboard was removed deliberately: TheC64
+classic mode (fw 1.6.1) injects the controller into port 1 as well as
+port 2, and port-1 stick lines share CIA1 port B with the keyboard
+rows.  Any keyboard matrix scan therefore reads phantom keys — a held
+DOWN stick grounds row PB1 and the W scan (PA1/PB1) read it as "up":
+the reported "down is up" fault in classic mode.  PC VICE injects only
+the configured port and was unaffected.  With no keyboard scan left
+anywhere, port-1 grounding cannot reach gameplay input.
 
 **Joystick port 2** switches CIA port A to input mode:
 ```asm
@@ -349,12 +337,12 @@ exclusive mode — moving with WASD then grabbing the joystick just works.
     eor #$ff              ; invert → active high
     tax                   ; save
     lda #$ff
-    sta $dc02             ; restore keyboard mode
-    ;; now test bits 0–3 (UP/DOWN/LEFT/RIGHT)
+    sta $dc02             ; restore keyboard-drive mode
+    ;; now test bits 0–3 (UP/DOWN/LEFT/RIGHT) and 4 (FIRE)
 ```
 
-The joystick check mirrors the keyboard checks — same bounds, same `player_dir`
-updates, same `$D010` handling.
+The joystick check applies the same bounds and `player_dir` updates the
+old dual-input routine used, plus the same `$D010` handling.
 
 **Directional sprites**: `player_dir` (0=right, 1=left, 2=up, 3=down) selects
 one of four 64-byte sprite data blocks.  The sprite pointer at `$07F8` is set:
@@ -697,34 +685,45 @@ do_splash:
     jsr splash_bars       ; DMZ-style side shimmer
     jsr title_load        ; re-assert logo glyphs (init may wipe them)
 
-    ;; Keyboard fire — SPACE (matrix line 7, bit 4)
-    lda #$7f
-    sta $dc00
-    lda $dc01
-    and #$10
-    bne .ds_nospace
-    jmp ds_start          ; trampoline: ds_start is out of beq range
-
-.ds_nospace:
-    ;; M (line 4, bit 4): open the cracked loader — line 4, NOT line 0,
-    ;; because RETURN (the harness's typed CR) lives on line 0 and a
-    ;; per-frame line-0 scan eats the boot typing
-    lda #$ef
-    sta $dc00
-    lda $dc01
-    and #$10
-    beq ds_loader          ; jsr loader_draw → jmp menu_wait
-
-    ;; Joystick fire (port 2, active low)
+    ;; Joystick port 2 (active low → invert to active high)
     lda #$00
     sta $dc02
     lda $dc00
-    and #$10
+    eor #$ff
     tax
-    lda #$ff
-    sta $dc02
+
+    ;; FIRE (bit 4) starts
     txa
-    bne .ds_wait          ; loop forever until input
+    and #$10
+    beq .ds_nofire
+    jmp ds_start          ; trampoline: ds_start is out of beq range
+
+.ds_nofire:
+    ;; HOLD DOWN 45 frames → open the cracked loader (replaces the old
+    ;; keyboard M key; keyboard removed — TheC64 classic-mode port-1
+    ;; bleed, see behaviors.yaml System 3)
+    txa
+    and #$02
+    bne .ds_down
+    lda #0
+    sta splash_hold
+    jmp .ds_hook
+.ds_down:
+    inc splash_hold
+    lda splash_hold
+    cmp #45
+    bcc .ds_hook
+    lda #0
+    sta splash_hold
+    jmp ds_loader         ; jsr loader_draw → jmp menu_wait
+
+.ds_hook:
+    ;; Testability hook (VICE monitor tests poke state to leave the
+    ;; splash)
+    lda state
+    cmp #GAME_SPLASH
+    bne ds_start
+    jmp .ds_wait          ; loop forever until input
 
 ds_start:
     lda #11
@@ -764,7 +763,7 @@ $D028 = light red at level 5+, red otherwise
 ### Powerup (`pwr_check` + unified invincibility flash)
 
 An invincibility **charge**, not an item: reaching level 3+ sets `pwr_avail`,
-and FIRE (joystick port 2) or SPACE (keyboard fire) spends it for 2 seconds
+and FIRE (joystick port 2) spends it for 2 seconds
 (100 frames) of immunity.
 
 **Award** — in `level_update`, right after `inc level`:
@@ -780,10 +779,9 @@ and FIRE (joystick port 2) or SPACE (keyboard fire) spends it for 2 seconds
 **Trigger** — `pwr_check` runs every PLAYING frame (in `do_play`, AFTER
 the collision checks — a hit frame changes state to DYING before it
 runs, so the charge arp can never overlay the death boom).  It reads
-both input
-sources (fire via `$DC02=$00` input mode; SPACE via matrix line 7, bit 4 —
-the same read the splash uses) and combines them with the §4 edge-detection
-pattern: `pwr_key` is 0 while held, 1 when released, so a charge can
+the fire input (`$DC02=$00` input mode, `$DC00` bit 4) and applies the
+§4 edge-detection pattern: `pwr_key` is 0 while held, 1 when released,
+so a charge can
 never auto-fire while the button is held down.  The `do_die` respawn
 path edge-resyncs `pwr_key` to the physical fire state, so a press held
 through the dying window doesn't fire the arp right after the death
@@ -795,7 +793,7 @@ the noise crack faded; it now sweeps down as an explosion thud, see
 ```asm
 .pressed:
     lda #$ff
-    sta $dc02            ; restore keyboard mode (idempotent)
+    sta $dc02            ; restore output mode (idempotent)
     lda pwr_key
     beq .p_held          ; already down → no edge
     lda #0
@@ -949,9 +947,9 @@ over_prompt: !scr "press fire", 0
 The title renders white at row 12 col 16; the prompt sits at row 13
 col 15 in lt.grey (per-cell colour overwrite after the whole-row white
 fill).  `behaviors_update` still runs every frame, so the HUD keeps
-showing the final score.  On fire/SPACE, `ov_wait` first waits for the
-press to lift — the RELEASE GATE polls `$DC01`/`$DC00` (ticking
-`sound_tick`) until both SPACE and port-2 fire read released, because
+showing the final score.  On fire, `ov_wait` first waits for the
+press to lift — the RELEASE GATE polls `$DC00` via `$DC02=$00` input
+mode (ticking `sound_tick`) until port-2 fire reads released, because
 the same press would otherwise re-trigger the splash's own start check
 a frame later and skip the title (boots level 1 instantly).  Only then
 does `ov_restart` call `restart()` (which resets all game state and

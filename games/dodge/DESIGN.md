@@ -1,12 +1,18 @@
 # Sprite Dodge — Game Design
 
 ## Controls
-- **WASD** — move player
-- **FIRE** (joystick port 2) / **SPACE** (keyboard) — start game from the splash, restart (game over), trigger powerup charge
-- **M** — cracked-menu level-select loader from the splash: digits 1-5
-  jump, joystick up/down + fire/SPACE confirm, F1 backs out.  Starting at
-  level n begins with that level's threshold score (256/512/1024/1536),
-  its speed, and its enemy colour — no charge/life awards
+Joystick only — the keyboard was removed deliberately: TheC64 classic
+mode injects the controller into port 1 as well as port 2, and port-1
+stick lines share CIA1 port B with the keyboard rows, so any keyboard
+matrix scan read phantom keys (held DOWN stick grounded PB1, which the
+W scan read as "up": "down is up").
+- **FIRE** (joystick port 2) — start game from the splash, restart (game over), confirm in menus, trigger powerup charge
+- **Stick** — move player
+- **Hold DOWN** on the splash (45 frames) — opens the cracked-menu
+  level-select loader: joystick up/down move the ">" highlight, FIRE
+  confirms.  Starting at level n begins with that level's threshold
+  score (256/512/1024/1536), its speed, and its enemy colour — no
+  charge/life awards.  **Hold LEFT** (45 frames) backs out to the splash.
 
 ## Visual zones
 Three vertical stripes via color RAM on solid block characters:
@@ -103,8 +109,8 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ## Powerup
 - Reaching level 3 (or higher) awards one invincibility charge, capped at 1.
-- Triggered manually with FIRE (joystick port 2) or SPACE (keyboard),
-  edge‑detected so it cannot auto‑fire while held.
+- Triggered manually with FIRE (joystick port 2), edge-detected so it
+  cannot auto-fire while held.
 - Grants 2 seconds (100 frames) of invincibility via `hit_timer` — the
   collision systems need no special casing.
 - If already invincible, the longer timer wins (`max(hit_timer, 100)`).
@@ -122,19 +128,19 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 ## Player movement
 - 9‑bit X positioning with $D010 MSB.
 - Bounds: X 24–320, Y 50–229.
-- Direct VIC‑II register writes from keyboard reader.
+- Direct VIC‑II register writes from the joystick reader.
 
 ### Directional sprites
 The player has 4 directional spaceship sprites that change with movement:
 
-| Direction | Key | Sprite File | Block |
-|-----------|-----|-------------|-------|
-| Right | D | `ship_r.spr` | $80 |
-| Left | A | `ship_l.spr` | $81 |
-| Up | W | `ship_u.spr` | $82 |
-| Down | S | `ship_d.spr` | $83 |
+| Direction | Stick | Sprite File | Block |
+|-----------|-------|-------------|-------|
+| Right | RIGHT | `ship_r.spr` | $80 |
+| Left | LEFT | `ship_l.spr` | $81 |
+| Up | UP | `ship_u.spr` | $82 |
+| Down | DOWN | `ship_d.spr` | $83 |
 
-A `player_dir` variable (0=right … 3=down) is set by `keyboard_read`
+A `player_dir` variable (0=right … 3=down) is set by `input_read`
 on each successful movement. The sprite pointer at $07F8 is updated to
 `$80 + player_dir` so the VIC‑II displays the correct orientation.
 
@@ -175,8 +181,8 @@ $3800–$3FFF : copied ROM charset (2 KB)
 ## State machine
 ```
 SPLASH (3)   → "LAST STAR SYSTEM" + chrome logo + shimmer bars + DMZ
-                 ↓ fire/SPACE = level 1 · 1‑5 = that level · F1 = loader menu
-PLAYING (0)  → keyboard, enemy AI, scoring, collision
+                 ↓ fire = level 1 · hold DOWN = loader menu
+PLAYING (0)  → joystick, enemy AI, scoring, collision
                  ↓ collision
 DYING (1)     → player flashes, 150‑frame timer
                  ↓ lives > 0     ↓ lives = 0
@@ -190,11 +196,12 @@ GAME_OVER (2) → show text + final score HUD, wait for fire →
 - Cyan bars on rows 9 and 16 frame the title/subtitle area.
 - Title "LAST STAR SYSTEM" in white at row 10, centered.
 - Subtitle "press fire to play" (light grey, col 11) and loader hint
-  "f1 or 1-5: level select" (row 16) frame the title.
-- Cracked-loader menu (F1): white border, "START LEVEL 1-5" list with a
-  ">" highlight; digits/jump, joystick up-down + fire/SPACE, F1 back.
+  "hold down: levels" (row 16) frame the title.
+- Cracked-loader menu (hold DOWN): white border, "START LEVEL 1-5" list
+  with a ">" highlight; joystick up-down move it, FIRE confirms,
+  hold LEFT backs out.
 - Frame loop only (no keyboard movement during splash).
-- fire/SPACE or a digit transitions to PLAYING (at the chosen level);
+- FIRE transitions to PLAYING (at the chosen level);
   the game-over screen returns here (restart resets the game, then the
   splash re-renders).
 

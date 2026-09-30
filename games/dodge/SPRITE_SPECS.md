@@ -31,7 +31,7 @@ Keep the outline and overall shape consistent across frames.
   frame 0 — the trail is completely hidden.
 
 Movement is detected by comparing sprite 0's VIC position against
-`prev_x`/`prev_y` at the end of `keyboard_read` (`player_moving`).
+`prev_x`/`prev_y` at the end of `input_read` (`player_moving`).
 The gate lives in `anim_update`.  l1/d1 are hand-drawn variants, not
 mechanical mirrors of r1/u1.
 

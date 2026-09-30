@@ -86,18 +86,18 @@
 #   trans_done   1 B    0       Text drawn flag (one-shot)
 #   ship_ctr     1 B    0       Ship animation counter (every 2 frames)
 #   ship_frame   1 B    0       Ship animation frame (0=no trail, 1=trail)
-#   player_moving 1 B   0       Set by keyboard_read: 1 if sprite 0 moved
+#   player_moving 1 B   0       Set by input_read: 1 if sprite 0 moved
 #   prev_x/prev_y 1 B ea 0      Sprite 0 position last frame (delta detect)
 #   enemy_ctr    1 B    0       Enemy animation counter (every 6 frames)
 #   enemy_frame  1 B    0       Enemy animation frame (0–7)
 #   boom_tmr     1 B    0       Death-boom countdown (0=inactive)
 #   pwr_avail    1 B    0       Invincibility charge available (0/1)
 #   pwr_flash    1 B    0       Flash cycle counter during invincibility
-#   pwr_key      1 B    0       Fire/shift edge state (0=held, 1=released)
+#   pwr_key      1 B    0       Fire edge state (0=held, 1=released)
 #
 #   Framework-provided (accessible from routines):
 #     frame_ready    1 B    —   Set to 1 after raster IRQ, cleared after use
-#     joystick_state 1 B    —   Joystick state, active high (unused; WASD+joy inline)
+#     joystick_state 1 B    —   Joystick state, active high (unused; input_read writes VIC regs directly)
 #     joystick_prev  1 B    —   Previous frame state (unused)
 #     random         1 B    —   Independent Galois LFSR, advanced each frame
 #
@@ -143,7 +143,7 @@ behaviors:
 # =============================================================================
 #
 # States (defined as constants in assembly):
-#   GAME_SPLASH  = 3   Title screen, DMZ side-bar shimmer, SPACE to start
+#   GAME_SPLASH  = 3   Title screen, DMZ side-bar shimmer, fire to start
 #   GAME_PLAYING = 0   Normal gameplay
 #   GAME_DYING   = 1   Player just hit; flash + timer before respawn
 #   GAME_OVER    = 2   Lives exhausted; "game over" + "press fire to
@@ -153,28 +153,27 @@ behaviors:
 #                         leading space below 10), reset, timer
 #
 # Transitions:
-#   SPLASH → PLAYING     SPACE pressed (re-runs do_init, enables sprites)
+#   SPLASH → PLAYING     FIRE pressed (re-runs do_init, enables sprites)
 #   PLAYING → DYING       Player/enemy collision OR asteroid collision
 #                            (requires: hit_timer==0, player not in DMZ,
 #                             distance gate < 18 px)
 #   PLAYING → TRANSITION   Score crosses the binary threshold (level-up)
-#                            (also triggered by SPACE cheat key)
 #   TRANSITION → PLAYING    90-frame countdown expires; positions reset,
 #                            score_tmr/zone_ticks/last_safe zeroed for new level
 #   DYING → PLAYING         150-frame timer expires + lives > 0
 #                            (player sprite flashes at 4-frame interval)
 #   DYING → GAME_OVER     150-frame timer expires + lives == 0
-#   GAME_OVER → SPLASH     fire or SPACE pressed: restart() resets all
+#   GAME_OVER → SPLASH     FIRE pressed: restart() resets all
 #                           game state, then state=SPLASH and
 #                           splash_done=0 so the title re-renders.
-#                           From the splash, fire/SPACE starts a fresh
+#                           From the splash, FIRE starts a fresh
 #                           level-1 game (do_init re-runs).
 #
 # Frame dispatch logic:
 #   1. Always run sfx_gate_off + sfx_tick_all + dmz_do
 #   2. If SPLASH: jump to do_splash, own frame loop (bypasses everything)
 #   3. If TRANSITION: jump to do_transition (draw text, countdown)
-#   4. Else: keyboard + player animation + powerup HUD indicator +
+#   4. Else: joystick input + player animation + powerup HUD indicator +
 #            level_update + ast_update + radar_do
 #   5. If PLAYING: do_play (enemy_do, score_do, collision_do,
 #            ast_collision, then pwr_check — powerup AFTER collisions so
@@ -225,26 +224,26 @@ behaviors:
 
 
 # =============================================================================
-# System 3 — Player Movement (keyboard_read)
+# System 3 — Player Input (input_read)
 # =============================================================================
 #
-# Input sources (both active simultaneously):
-#   Keyboard:  WASD via CIA1 column-scan  ($DC00/$DC01)
+# JOYSTICK ONLY.  The keyboard was removed deliberately: TheC64 classic
+# mode (fw 1.6.1) injects the controller into port 1 as well as port 2,
+# and port-1 stick lines share CIA1 port B with the keyboard rows.  Any
+# keyboard matrix scan therefore reads phantom keys — a held DOWN stick
+# grounds row PB1 and the W scan (PA1/PB1) read it as "up": the reported
+# "down is up" fault in classic mode.  PC VICE injects only the
+# configured port and was unaffected.  With no keyboard scan left
+# anywhere, port-1 grounding cannot reach gameplay input.
+#
+# Input source:
 #   Joystick:  Port 2 via CIA1 PRA read   ($DC00, active low)
+#     Write $00 → $DC02 (port A = all inputs)
+#     Read $DC00, eor #$FF (invert to active high)
+#     Restore $FF → $DC02 (port A = all outputs)
+#     Bits: 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT, 4=FIRE
 #
-# Keyboard matrix reads:
-#   W (up):    write $FD → read $DC01, check bit 1 ($02)  — column 1, row 1
-#   S (down):  write $FD → read $DC01, check bit 4 ($10)  — column 1, row 4
-#   A (left):  write $FD → read $DC01, check bit 2 ($04)  — column 1, row 2
-#   D (right): write $FB → read $DC01, check bit 2 ($04)  — column 2, row 2
-#
-# Joystick port 2:
-#   Write $00 → $DC02 (port A = all inputs)
-#   Read $DC00, eor #$FF (invert to active high)
-#   Restore $FF → $DC02 (port A = all outputs, keyboard mode)
-#   Bits: 0=UP, 1=DOWN, 2=LEFT, 3=RIGHT
-#
-# Movement (applied identically for keyboard and joystick):
+# Movement (joystick):
 #   UP:    If Y > 50: DEC $D001.  Set player_dir = 2.
 #   DOWN:  If Y < 229: INC $D001.  Set player_dir = 3.
 #   LEFT:  If X > 24 (or MSB set): decrement X with full $D010 handling.
@@ -267,7 +266,7 @@ behaviors:
 #   trail.
 #   Movement gate (anim_update):
 #     Moving (state == PLAYING and player_moving == 1, set by
-#     keyboard_read when the sprite position changed this frame):
+#     input_read when the sprite position changed this frame):
 #     alternate every 2 frames (25 Hz flicker — the two trail
 #     positions blend on the phosphor, reading as translucent
 #     exhaust).
@@ -503,22 +502,21 @@ behaviors:
 
 # Wait loop (subsequent frames):
 #   - Run sound_tick (handles both legacy snd_timer and sfx_gate_off)
-#   - Check SPACE bar (write $7F to $DC00, read $DC01 bit 4) and
-#     joystick port 2 fire
-#   - If either is pressed: enter the RELEASE GATE first — poll (still
-#     ticking sound_tick) until BOTH SPACE and port-2 fire read
-#     released, then go to the SPLASH screen.  Without the gate the same
-#     physical press (held 2–5 frames) re-triggers the splash's own
-#     fire/SPACE start check on its first frame, skipping the title and
-#     booting a fresh level-1 game (the reported regression).
+#   - Check joystick port 2 fire ($DC02 = $00, $DC00 bit 4, restore $FF)
+#   - If pressed: enter the RELEASE GATE first — poll (still ticking
+#     sound_tick) until fire reads released, then go to the SPLASH
+#     screen.  Without the gate the same physical press (held 2–5
+#     frames) re-triggers the splash's own fire start check on its
+#     first frame, skipping the title and booting a fresh level-1 game
+#     (the reported regression).
 #   - Else: loop
 #
-# Fire/SPACE sequence (ov_restart):
+# Fire sequence (ov_restart):
 #   1. Call restart() — full game-state reset (below)
 #   2. state = GAME_SPLASH, splash_done = 0 — gstart's SPLASH dispatch
 #      runs do_splash next frame; with splash_done == 0 draw_splash
 #      re-renders the title screen over the game field.
-#   3. From the splash, fire/SPACE re-runs do_init (ds_start clears
+#   3. From the splash, FIRE re-runs do_init (ds_start clears
 #      init_done) and starts a fresh level-1 game.
 #
 # Restart subroutine (restart):
@@ -887,7 +885,7 @@ behaviors:
 #     a no-op when inactive — it must never gate voice 3 in idle
 #     or the enemy-respawn sfx_explosion would die a frame later.
 #
-#   Level-up (score threshold and SPACE cheat):
+#   Level-up (score threshold):
 #     sfx_coin — voice 1, 4-note ascending sparkle jingle
 #     ($0500/$0800/$0B00/$0F00 ≈ 1.4k → 2.1k → 3.0k → 4.1k Hz,
 #     6 frames per note, triangle, sustain $F0 — full volume per
@@ -953,14 +951,14 @@ behaviors:
 #
 # Runs its OWN frame loop — completely bypasses the main loop's behaviours_update.
 # The splash routine owns frame_ready, advances it internally, and never returns
-# to the main loop until fire/SPACE transitions to PLAYING.
+#   to the main loop until FIRE transitions to PLAYING.
 #
 # Initialisation (draw_splash, called once):
 #   1. Fill screen RAM ($0400–$07E7) with $A0 (solid block)
 #   2. Fill colour RAM ($D800–$DBE7) with 0 (black)
 #   3. Write title: "last star system" → row 10, col 12, colour white (1)
 #   4. Write prompt: "press fire to play" → row 14, col 11, colour lt.grey (15)
-#   5. Write loader hint: "f1 or 1-5: level select" → row 16, col 11, lt.grey (15)
+#   5. Write loader hint: "hold down: levels" → row 16, col 11, lt.grey (15)
 #   6. Write credit: "gpowerf 2026" → row 22, col 14, colour lt.grey (15)
 #   7. Text via !scr (lowercase ASCII → PETSCII screen codes)
 #      The ds_press / ds_hint / ds_credit strings live at $2900 —
@@ -976,19 +974,17 @@ behaviors:
 #   1. Disable all sprites ($D015 = 0)
 #   2. Wait for frame_ready (busy-wait on frame_ready==0, then clear it)
 #   3. Call splash_bars — shimmer side columns 0–3 and 36–39
-#   4. Keyboard fire — SPACE (write $7F → $DC00, read $DC01 bit 4):
-#      start the game (level 1 unless start_level was pre-set)
-#   5. M (matrix line 4, write $EF → $DC00, read $DC01 bit 4): open the
-#      level-select loader (System 15).  Deliberately NOT F1 — line 0 is
-#      RETURN's line and the harness types "sys2061\r" at boot; a
-#      per-frame line-0 scan collides with that CR delivery.  Line 4
-#      carries no keystroke of the boot typing.
-#   6. Joystick port 2 fire (write $00 → $DC02, read $DC00 bit 4,
-#      restore $FF → $DC02): start the game
-#   7. Testability hook: if state != GAME_SPLASH, exit via the normal
+#   4. Joystick port 2 read (write $00 → $DC02, read $DC00, EOR #$FF,
+#      restore $FF → $DC02): FIRE (bit 4) starts the game (level 1
+#      unless start_level was pre-set)
+#   5. HOLD-DOWN gesture: stick DOWN (bit 1) held 45 consecutive frames
+#      opens the level-select loader (System 15).  Replaces the old
+#      keyboard M key — the keyboard was removed entirely (TheC64
+#      classic-mode port-1 bleed; see System 3).
+#   6. Testability hook: if state != GAME_SPLASH, exit via the normal
 #      start path.  Inert during real play (nothing writes state while
 #      splashing) — VICE-monitor tests poke state to leave the splash.
-#   8. If a start trigger fired (or state changed):
+#   7. If a start trigger fired (or state changed):
 #        - Border back to dark grey ($D020 = 11)
 #        - If start_level == 0: set it to 1
 #        - Set init_done = 0  (forces do_init re-run with game screen),
@@ -1000,9 +996,10 @@ behaviors:
 #      Else:
 #        - Jump back to the loop top (splash_wait label) forever
 #
-#   NOTE: the only extra matrix scan beyond the base's SPACE line is M
-#   on line 4 — chosen because the boot typing ("sys2061\r") never
-#   touches line 4, while RETURN (the CR) lives on line 0.
+#   NOTE: no keyboard matrix scan survives anywhere in the input path —
+#   TheC64 classic mode injects the controller into port 1 as well as
+#   port 2, and port-1 stick lines share CIA1 port B with the keyboard
+#   rows, so any column-driven scan reads phantom keys.
 #
 # The loop top is a global label (splash_wait) so the test harness can
 # breakpoint inside the loop — main_loop is unreachable while splashing.
@@ -1027,16 +1024,20 @@ behaviors:
 # System 15 — Level-Select Loader (menu_wait + loader_draw)
 # =============================================================================
 #
-# Classic cracked-loader screen, opened with M from the splash:
+# Classic cracked-loader screen, opened by holding stick DOWN (45
+# frames) on the splash:
 #   - white border, black screen, "***** start level *****" header
 #   - items 1-5 ("n .. start at level n"), ">" marker on the selection
-#   - footer: fire/space play | 1-5 jump | f1 back
+#   - footer: fire: play   hold left: back
 #
 # Input (menu_wait, owns frame_ready like splash_wait):
-#   - digits 1-5 (matrix lines 7/1/2): jump straight to that level
-#   - joystick up/down (lines... port 2 bits 0/1): move the marker
-#   - joystick fire OR SPACE: confirm the highlighted level
-#   - F1 (line 0 — safe here, the boot typing is long done): back out
+#   - joystick up/down edges (port 2 bits 0/1): move the marker
+#   - joystick fire edge (bit 4): confirm the highlighted level
+#   - hold stick LEFT 45 consecutive frames: back out to the splash
+#     (replaces the old keyboard F1; keyboard removed — see System 3)
+#
+# The old keyboard digits (1-5 jump) and SPACE confirm died with the
+# keyboard itself; stick navigation covers the same choices.
 #
 # Floating-line guard: unplugged joysticks can read phantom lows, and a
 # stuck line would confirm instantly.  menu_wait therefore runs EDGE
@@ -1080,8 +1081,8 @@ behaviors:
 # =============================================================================
 #
 # Reaching level 3 (or higher) awards one invincibility charge.
-# The charge is triggered manually with FIRE (joystick port 2) or
-# SPACE (keyboard), granting 2 seconds (100 frames) of flashing
+# The charge is triggered manually with FIRE (joystick port 2),
+# granting 2 seconds (100 frames) of flashing
 # invincibility.  No powerup sprite exists — it is an ability, not
 # an item.
 #
@@ -1097,7 +1098,6 @@ behaviors:
 # exits early and a hit frame can never play the charge arp over the
 # death boom):
 #   Reads FIRE:  $DC02 = $00 (all inputs), $DC00 bit 4, restore $FF.
-#   Reads SPACE (= keyboard fire): $7F → $DC00, $DC01 bit 4.
 #   Edge detection via pwr_key (press/release latch pattern):
 #     pwr_key = 0 while held, 1 when released.
 #     Trigger only on the released → pressed edge.
