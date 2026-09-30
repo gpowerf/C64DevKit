@@ -227,22 +227,25 @@ behaviors:
 # System 3 — Player Input (input_read)
 # =============================================================================
 #
-# JOYSTICK ONLY, PORT 2.  The keyboard was removed deliberately: TheC64
-# classic mode (fw 1.6.1) injects the controller into port 1 as well as
-# port 2, and port-1 stick lines share CIA1 port B with the keyboard
-# rows.  Any keyboard matrix scan therefore reads phantom keys — a held
-# DOWN stick grounds row PB1 and the W scan (PA1/PB1) read it as "up":
-# the reported "down is up" fault in classic mode.  PC VICE injects only
-# the configured port and was unaffected.  With no keyboard scan left
-# anywhere, port-1 grounding cannot reach gameplay input.
+# JOYSTICK ONLY, PORT 2.  The keyboard was removed deliberately: with
+# a keyboard-launched TheC64 classic-mode session the controller is
+# assigned to port 1, and port-1 stick lines share CIA1 port B with
+# the keyboard rows.  Any keyboard matrix scan therefore reads phantom
+# keys — a held DOWN stick grounds row PB1 and the W scan (PA1/PB1)
+# read it as "up": the reported "down is up" fault in classic mode.
+# PC VICE injects only the configured port and was unaffected.  With
+# no keyboard scan left anywhere, port-1 grounding cannot reach
+# gameplay input.
 #
-# PORT REQUIREMENT (hardware-verified on TheC64 fw 1.6.1): classic mode
-# injects the controller into PORT 1 ONLY — a port-2-only build's stick
-# is completely dead there (observed after this change), while carousel
-# mode defaults to port 2.  The disk therefore ships with the J2
-# filename flag (LastGalaxy_J2.d64), which forces port 2 in both modes.
-# If the file is ever renamed, the _J2 suffix must be kept.  See
-# c64devk flags / docs/thec64-flags.md.
+# THEC64 CLASSIC-MODE PORT RULE (hardware-verified, fw 1.6.1): the
+# joystick port is decided by the LAUNCH DEVICE, not by filename flags
+# — launching the file from the Media Access menu with the KEYBOARD
+# (B key) assigns the controller to PORT 1; launching with the
+# joystick FIRE button assigns PORT 2.  Carousel mode always routes
+# to port 2.  A port-2-only build therefore shows a DEAD stick in a
+# keyboard-launched classic session (observed) — players must launch
+# with FIRE.  Empirical probe: PORTTEST PRG (tools in the repo
+# history, /tmp during the investigation) displays $DC00/$DC01 live.
 #
 # Input source:
 #   Joystick:  Port 2 via CIA1 PRA read   ($DC00, active low)
