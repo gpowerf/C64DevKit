@@ -1,0 +1,112 @@
+; portprobe.a — CIA1 joystick port probe for TheC64 port investigation
+;
+; Displays both joystick ports live, active-high (bit set = line
+; grounded / direction or fire held):
+;   P2 = $DC00 (CIA1 port A, Control Port 2)  shown in RED
+;   P1 = $DC01 (CIA1 port B, Control Port 1)  shown in YELLOW
+; Bits: 0=UP 1=DOWN 2=LEFT 3=RIGHT 4=FIRE.  P1 bits 5-7 are keyboard
+; row lines — they only move if a real key grounds them (a port-1
+; joystick cannot touch them).
+; IRQs are off so the KERNAL keyboard scan cannot flip DDRA under us.
+
+        * = $0801
+        !byte $0b,$08,$0a,$00,$9e,$32,$30,$36,$32,$00,$00,$00
+;                                       10 SYS2062
+
+        * = $080e
+start:
+        sei
+        lda #$00
+        sta $dc02              ; port A = input (port-2 stick)
+        sta $dc03              ; port B = input (port-1 stick / rows)
+
+        lda #$1b
+        sta $d011
+        lda #$00
+        sta $d020              ; black border
+        sta $d021              ; black background
+
+        ldx #$00               ; clear screen + paint colour RAM white
+clrscr: lda #$20
+        sta $0400,x
+        sta $0500,x
+        sta $0600,x
+        sta $0700,x
+        lda #$01
+        sta $d800,x
+        sta $d900,x
+        sta $da00,x
+        sta $dae8,x
+        inx
+        bne clrscr
+
+        ldx #$00
+title:  lda titletxt,x
+        beq l2
+        sta $0400,x
+        inx
+        bne title
+
+l2:     ldx #$00
+l2loop: lda p2txt,x
+        beq l3
+        sta $0428,x            ; row 1
+        lda #$0a               ; red
+        sta $d828,x
+        inx
+        bne l2loop
+
+l3:     ldx #$00
+l3loop: lda p1txt,x
+        beq frame
+        sta $0450,x            ; row 2
+        lda #$07               ; yellow
+        sta $d850,x
+        inx
+        bne l3loop
+
+frame:
+        lda $dc00
+        eor #$ff               ; active-high
+        ldx #$32               ; readout cell $0432 (row 1, cols 10-11)
+        ldy #$04
+        jsr puthex
+        lda $dc01
+        eor #$ff
+        ldx #$5a               ; readout cell $045A (row 2, cols 10-11)
+        ldy #$04
+        jsr puthex
+        jmp frame
+
+; puthex: A = value, X/Y = screen cell address lo/hi
+puthex:
+        sta $fd
+        stx $fb
+        sty $fc
+        ldy #$00
+        lda $fd
+        lsr
+        lsr
+        lsr
+        lsr
+        jsr nib
+        sta ($fb),y
+        lda $fd
+        and #$0f
+        jsr nib
+        ldy #$01
+        sta ($fb),y
+        rts
+
+nib:    cmp #$0a
+        bcc isdig
+        sec
+        sbc #$09               ; $0A-$0F → screen codes $01-$06 (A-F)
+        rts
+isdig:  clc
+        adc #$30               ; '0'-'9'
+        rts
+
+titletxt: !scr "CIA1 JOYSTICK PORT PROBE", 0
+p2txt:    !scr "P2 DC00 = ", 0
+p1txt:    !scr "P1 DC01 = ", 0
