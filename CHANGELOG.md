@@ -17,6 +17,88 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-09-30 · dodge: joystick-only input — TheC64 classic-mode fix
+
+- **What:** removed every keyboard matrix scan from `games/dodge`
+  (input routine renamed `keyboard_read` → `input_read`, WASD movement
+  deleted; SPACE/M/F1/digit probes and both keyboard release-gate arms
+  removed; powerup, splash start, menu confirm and game-over restart
+  are fire-only).  The loader opens with a hold-DOWN gesture (45
+  frames) on the splash and backs out with hold-LEFT; loader footer and
+  splash hint strings updated.  **TheC64 classic-mode port rule
+  (hardware-verified, fw 1.6.1, community-documented): the joystick
+  port is decided by the LAUNCH DEVICE** — keyboard (B key) launch
+  assigns Port 1, joystick FIRE launch assigns Port 2; carousel always
+  Port 2.  A port-2-only build therefore shows a dead stick in
+  keyboard-launched classic sessions (observed), which with the
+  original "down is up" phantoms pins the whole mechanism: port-1
+  stick lines grounded the keyboard rows the old build scanned.
+  Resolution: launch with FIRE — documented in behaviors.yaml System 3,
+  DESIGN.md, instructions.md, manual.html; a PORTTEST probe PRG
+  (live $DC00/$DC01 display) was built to confirm the rule on the
+  console.  Follow-up fix: menu_prev now tracks menu_raw every frame —
+  entering the loader while holding DOWN latched "DOWN held" into the
+  edge-detection reference permanently, deadening the stick in the
+  level-select menu.  Marketing copy rewritten for the new
+  input (instructions.md + manual.html + PDF rebuild, image_assets.md
+  briefs): joystick-only tables, hold-DOWN Mission Select, hold-LEFT
+  back-out; the delivered control-diagram art still shows WASD/SPACE
+  and is flagged for redraw (marketing/ is gitignored — local only).
+  Spec-first: behaviors.yaml System 3/14/
+  15/17 + state table rewritten, DESIGN.md / ASSEMBLY.md /
+  SPRITE_SPECS.md / game.yaml / tests.yaml comments synced.  PRG
+  rebuilt (13462 B, unchanged size, stub `10 SYS2061`, load $0801);
+  D64 repacked (DODGE, 53 blocks, t17/s0 chain, `c1541 -validate`
+  clean) and copied to the CJM folder as `LastGalaxy.d64`.
+- **Why:** TheC64 classic mode (fw 1.6.1) injects the controller into
+  port 1 as well as port 2; port-1 stick lines share CIA1 port B with
+  the keyboard rows, so the game's column-driven keyboard scans read
+  phantom keys — held stick DOWN grounded PB1 and the W scan (PA1/PB1)
+  read it as "up" ("down is up").  Carousel mode worked because the
+  CJM pins the stick to port 2; VICE worked because it injects only
+  the configured port.  With no keyboard scan left, port-1 grounding
+  cannot reach gameplay input; PC VICE port-1-only injection (the
+  repro setup) can no longer affect the game by construction (zero
+  `LDA $DC01` sites in the binary).
+- **Verification:** `c64devk check` PASS; live VICE suite 24/36 twice
+  — both runs fail only the known flaky frame-sync class (see
+  tests.yaml header), input-critical tests (splash start, movement
+  bounds, collision, loader plumbing, HUD) green in both; `c1541
+  -read` of the D64 byte-identical to `dodge.prg`; PRG grep: no `LDA
+  $DC01` remains.  VICE disk-autostart is broken in this environment
+  for ALL images (control `crash.d64` also hangs at "SEARCHING FOR *")
+  — real-hardware boot is the remaining acceptance step.
+- **Commits:** (this change set)
+
+---
+
+## 2026-09-18 · thec64: `c64devk geos` — GEOS 2.0 kit for TheC64
+
+- **What:** `geos` subcommand composing the flags/CJM tools for a
+  GEOS folder: computes one uniform flag suffix
+  (`M6 TP R5 P1 AD` by default) applied to every disk (preview /
+  `--rename` / `--copy`), or writes `thec64-default.cjm` via `--cjm`
+  (`X:64,pal,accuratedisk,reu512` + `J:1M:`); `--reu 512|2048|16m|none`,
+  `--video pal|ntsc`, `--no-mouse` (J1 route for fw < 1.6.1), and
+  `--vice` sanity boot (persistent `geos.reu` image, framework ROM
+  dir as VICE cwd). `geos` CJM preset now includes `accuratedisk`.
+  Docs/skill GEOS examples updated: AD is required (TURBOBOOT breaks
+  on fast-disk mode) and every disk of a set must carry the identical
+  suffix (disk swap reconfigures the machine from the inserted disk's
+  flags).
+- **Why:** community-verified GEOS-on-TheC64 requirements (uniform
+  `_J1AD`-style suffixes, accurate disk, fw ≥ 1.5.2 for REU, ≥ 1.6.1
+  for the 1351 mouse) were not encoded anywhere; hand-maintaining
+  suffixes across a multi-disk set is exactly the error the flags
+  validation exists to prevent.
+- **Verification:** live VICE boot of GEOS 64 v2.0 (zimmers
+  geos20_d64.zip, uniform suffix) with 512 kB REU attached —
+  autostart attached the image, GEOS kernal signature ("BERKELEY",
+  $EEAC) found in memory via remote monitor. 87/87 pytest.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-09-18 · framework: TheC64 kit — `c64devk flags` + `c64devk cjm`
 
 - **What:** new TheC64 customization kit implementing both official
