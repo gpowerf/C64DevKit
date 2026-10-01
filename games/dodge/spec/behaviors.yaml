@@ -376,8 +376,9 @@ behaviors:
 #   accumulator skips frames), then writes to VIC registers every
 #   movement frame.
 #
-# Enemy animation — octopus, hand-drawn cycle (7 frames, advances
-# every 6 frames via anim_update / enemy_ctr — 42-frame loop at 50 Hz):
+# Enemy animation — octopus, hand-drawn cycle (8 states — the rest
+# pose plus 7 wave frames — advancing every 6 frames via anim_update /
+# enemy_ctr — 48-frame loop at 50 Hz):
 #   Every frame: sprite pointer $07F9 = $D4 + enemy_frame (+4 skip
 #   when enemy_frame > 0, jumping over the four ship frame-1 blocks):
 #     $D4 → $3500 (skull,  frame 0 — rest pose),

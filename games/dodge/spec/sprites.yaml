@@ -54,11 +54,12 @@
 #   $07F8 = $80 + player_dir + ship_frame * 5
 # where player_dir ∈ {0=right, 1=left, 2=up, 3=down} and ship_frame ∈
 # {0, 1} alternates every 2 frames.  The *5 skips over the enemy
-# frame 0 at $84.  The enemy (octopus) cycles 7 hand-drawn frames:
+# frame 0 at $84.  The enemy (octopus) cycles 8 states — the rest
+# pose plus 7 hand-drawn wave frames:
 #   $07F9 = $84 + enemy_frame  (frame 0)
-#   $07F9 = $88 + enemy_frame  (frames 1–6, skipping the 4 ship blocks)
-# with enemy_frame ∈ {0..6} advancing every 6 frames (42-frame loop;
-# frame 6 is the widest, wrapping back to the rest pose of frame 0).
+#   $07F9 = $88 + enemy_frame  (frames 1–7, skipping the 4 ship blocks)
+# with enemy_frame ∈ {0..7} advancing every 6 frames (48-frame loop;
+# frame 7 is the widest, wrapping back to the rest pose of frame 0).
 # Animation frame files (ship_r1/l1/u1/d1, skull1–6) are emitted
 # directly by game_logic.acme via `!bin`, not via this spec.
 #

@@ -63,7 +63,7 @@ trans_done: !byte 0     ; text drawn flag
 ship_ctr:  !byte 0     ; ship animation counter (every 8 frames)
 ship_frame: !byte 0    ; ship animation frame (0-1)
 enemy_ctr: !byte 0     ; enemy animation counter (every 6 frames)
-enemy_frame: !byte 0   ; enemy animation frame (0-3)
+enemy_frame: !byte 0   ; enemy animation frame (0-7)
 boom_tmr:  !byte 0     ; death-boom countdown (0 = inactive, 60 = just died)
 bo_tmp:   !byte 0     ; boom_tick scratch (v2 sweep) — kept away from sfx_tmp
                       ; which sfx_tick_all's multi-frame presets own

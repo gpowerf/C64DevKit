@@ -122,7 +122,7 @@ The animation frames are emitted by `routines/game_logic.acme`
 (`!bin` directives at blocks $85-$8E, after the DSL-managed base
 frames at $80-$84). Pointer math in `gstart` selects the block:
 `$07F8 = $80 + player_dir + ship_frame*5` and
-`$07F9 = $84 + enemy_frame` (+4 skip when > 0, frames 0–6).
+`$07F9 = $84 + enemy_frame` (+4 skip when > 0, frames 0–7).
 
 ## Verification
 
