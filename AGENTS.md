@@ -87,6 +87,26 @@ c64devk shot                # Eyes: screenshot the game window (needs a vision-c
 c64devk audio               # Ears: record + fingerprint game audio (ALSA; --scene still|moving)
 ```
 
+### Build freeze — RELEASE.sha256 is the blessed binary
+
+`games/dodge/RELEASE.sha256` pins the sha256 of the PRG currently
+under play-test / shipped.  **Never rebuild a project whose binary is
+frozen unless the game itself is meant to change.**  In particular:
+
+- Manual, marketing, screenshot-capture, and comment/spec-prose work
+  must NEVER trigger `c64devk build` — those changes cannot affect the
+  binary.  Editing comments or docs does not need a rebuild; a rebuild
+  mid-review invalidates the play-test and is exactly the mistake that
+  the freeze exists to prevent.
+- Doc/manual captures run against the blessed PRG (verify with
+  `games/dodge/tools/check-release.sh` first) — never against a fresh
+  rebuild.
+- After a build whose output must change, `check-release.sh` reports
+  DRIFT; acknowledge it by updating `RELEASE.sha256` in the same commit
+  and stating it in the summary.  Silent binary drift is a process bug.
+- If a capture or test needs a running game, use the blessed build —
+  not a fresh one.
+
 **Agent senses** — `shot` gives eyes, `audio` gives ears.  Run with a
 **vision-capable model** so `shot` PNGs can actually be read.  For
 sound, use `c64devk audio` (drives a scripted scenario, records PCM,

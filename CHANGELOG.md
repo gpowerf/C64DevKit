@@ -17,6 +17,30 @@ hashes link each entry back to the git record.
 
 ---
 
+## 2026-10-01 · c64devkit: binary freeze guard — RELEASE.sha256 + check-release
+
+- **What:** `games/dodge/RELEASE.sha256` pins the blessed PRG (the
+  binary under play-test / shipped — currently `22cb97f8…`, the
+  joystick-only menu-fix build); `games/dodge/tools/check-release.sh`
+  compares any PRG against it (PASS / DRIFT, exit code); AGENTS.md
+  gains a "Build freeze" rule: manual, marketing, screenshot-capture,
+  and comment/spec-prose work must NEVER trigger `c64devk build`; doc
+  captures run against the blessed build; intended binary changes
+  update RELEASE.sha256 in the same commit.
+- **Why:** while rewriting the manual, an agent rebuilt the game twice
+  although the edits (comments, marketing prose) could not affect the
+  binary — pointless churn that invalidated play-test assumptions and
+  briefly shipped a bogus manual screenshot (a capture artifact the
+  freeze would have caught earlier).  The guard makes silent binary
+  drift a process bug: visible via DRIFT, acknowledged via the hash
+  update, and prevented by instruction.
+- **Verification:** check-release PASS on the on-disk build
+  (matches the blessed hash); DRIFT + exit 1 verified against a
+  deliberately modified copy.
+- **Commits:** (this change set)
+
+---
+
 ## 2026-09-30 · dodge: joystick-only input — TheC64 classic-mode fix
 
 - **What:** removed every keyboard matrix scan from `games/dodge`
