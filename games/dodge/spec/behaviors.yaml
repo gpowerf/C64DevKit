@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # The player controls a ship avoiding an enemy octopus and asteroids.
-# Score accumulates while the ship stays in the green zone (left side).
+# Score accumulates while the ship stays in the blue zone (left side).
 # The DMZ (right side, cols 28–39) provides collision immunity at a cost.
 # Level thresholds are binary: 256, 512, 1024, then every 512.
 # Enemy speed and asteroid count rise per level (capped at 5).
@@ -36,7 +36,7 @@
 #   state        1 B    3       State machine: 0=playing 1=dying 2=gameover 3=splash
 #   state_tmr    1 B    0       Dying-state timer (150 frames ≈ 3 sec)
 #   score_tmr    1 B    0       Countdown to next score tick (20 frames)
-#   zone_ticks   1 B    0       Consecutive green-zone scoring frames
+#   zone_ticks   1 B    0       Consecutive blue-zone scoring frames
 #   flash_tmr    1 B    0       Death flash toggle timer (4-frame cycle)
 #   init_done    1 B    0       One-time init guard
 #   splash_done  1 B    0       Splash screen rendered flag
@@ -196,7 +196,7 @@ behaviors:
 #   3. Fill screen RAM with $A0 (solid block glyph) — this makes the
 #      colour-RAM zones visible as solid vertical bars
 #   4. Paint colour RAM with 3-zone layout (rows 1–24):
-#        cols 0–12:  green (5)
+#        cols 0–12:  blue (6)
 #        cols 13–27: black (0)
 #        cols 28–39: blue  (6) — base colour under DMZ static
 #   5. Paint row 0 colour RAM white (1) for HUD header
@@ -327,7 +327,7 @@ behaviors:
 #   (At 50 fps, 20 frames = 2.5 ticks/sec.
 #    Tier thresholds: 0–5s → +5/s, 5–15s → +7.5/s, 15s+ → +12.5/s)
 #
-# Leaving green or neutral zones → leaving DMZ:
+# Leaving blue or neutral zones → leaving DMZ:
 #   last_safe reset to 0 so next DMZ entry triggers penalty again.
 #
 # Score wraps on overflow (16-bit, 0–65535).
@@ -544,7 +544,7 @@ behaviors:
 #        All 3 asteroid VIC positions off-screen (X=0, Y=250)
 #   7. start_level = 0 (forget any loader level pick — the splash is
 #      where levels get chosen again)
-#   8. Restore colour RAM rows 12–13 to zone colours (green 0–12,
+#   8. Restore colour RAM rows 12–13 to zone colours (blue 0–12,
 #      black 13–27, blue 28–39)
 #   9. Clear screen RAM rows 12–13 (fill with $A0 solid blocks)
 #
@@ -1084,7 +1084,7 @@ behaviors:
 #   - Must NOT be in last_safe state AND not in DMZ for penalty:
 #       On entry: score −5, clamp to 0 on underflow
 #       Set last_safe = 1  (prevents re-penalty until leaving DMZ)
-#   - In DMZ: zone_ticks = 0  (no green-zone credit)
+#   - In DMZ: zone_ticks = 0  (no blue-zone credit)
 #   - Leaving DMZ: last_safe = 0  (re-arms penalty for next entry)
 #
 # =============================================================================

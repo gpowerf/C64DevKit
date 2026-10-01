@@ -129,7 +129,8 @@ Reaching level 3+ awards one powerup charge (see Powerup below).
 
 ## Enemy AI
 - Starts at (100, 80).
-- Chases player at 1 px every 2 frames (speed_div = 2, fixed).
+- Chases the player at a level-dependent fractional speed — 25/25/25/30/35
+  px/s at levels 1/2/3/4/5+ (level_speeds table, fractional accumulator).
 - Clamped to visible area: X 24–224, Y 50–229.
 - Cannot follow player past X = 224 (DMZ boundary).
 
