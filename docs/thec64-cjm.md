@@ -111,7 +111,8 @@ default CJM, the CJM's overlapping settings win.
 
 ## Worked example: GEOS 64 v2.0
 
-GEOS needs its pointer (1351 mouse) and wants REU. For a USB stick:
+GEOS needs its pointer (1351 mouse), wants REU, and requires
+accurate disk. For a USB stick:
 
 ```
 USB:/
@@ -127,12 +128,25 @@ c64devk cjm --preset geos --name GEOS64-20.d64 --out /media/usb/GEOS
 produces `GEOS64-20.cjm`:
 
 ```
-X:64,pal,reu512
+X:64,pal,accuratedisk,reu512
 J:1M:
 ```
 
-Swap `--reu 2048`/`--reu 16m` for more RAM (fw ≥ 1.5.1); stock GEOS
-2.0 exploits what its REU driver detects. Using `J:1M:` rather than a
-button map keeps the CJM minimal and mouse-driven — exactly what GEOS
-expects. To give *every* disk in the GEOS folder the same treatment,
-add `--default` to write `thec64-default.cjm` instead.
+Swap `--reu 2048`/`--reu 16m` for more RAM (fw ≥ 1.5.2); stock GEOS
+2.0 exploits up to 2 MB. Caveat for multi-disk sets: filename flags
+are proven to re-apply on mid-session disk swap, a folder CJM may
+not — `c64devk geos <folder> --rename` (uniform flags) is the safer
+route there. Using `J:1M:` rather than a button map keeps the CJM
+minimal and mouse-driven — exactly what GEOS expects. To give *every*
+disk in the GEOS folder the same treatment, add `--default` to write
+`thec64-default.cjm` instead.
+
+Troubleshooting a dead pointer: `P1`/`J:1M:` configure the *console*,
+but GEOS also has its own input driver — press **C= + I** inside GEOS
+and select the 1351 driver. Signature of the wrong (JOYSTICK) driver:
+the right mouse button moves the pointer up and clicks still work —
+a 1351 wires its right button to the joystick-up line, so a
+joystick-mode driver reads it as "up" while never seeing the
+proportional motion data. Make the driver choice persistent via
+CONFIGURE. And since flags/CJM apply when the file loads, reboot the
+boot disk after renaming anything.

@@ -87,13 +87,21 @@ reu16384` (fw ≥ 1.5.1).
 
 ## Worked example — GEOS 64 v2.0 on TheC64 Maxi
 
-GEOS is mouse-driven and benefits from REU. Flags route:
+GEOS is mouse-driven, benefits from REU, and requires accurate disk
+(its TURBOBOOT fastloader fails on TheC64's fast-disk mode). The
+recommended route applies one uniform flag suffix to every disk of
+the set — on disk swap TheC64 reconfigures the machine from the
+inserted disk's flags, so a mixed suffix set breaks the REU RAM disk:
 
 ```bash
-c64devk flags GEOS64-20.d64 --c64 --pal --reu 512 --mouse1 --rename
+c64devk geos <folder> --rename      # uniform _M6TPR5P1AD on all disks
+c64devk geos <folder> --vice        # optional: sanity boot in VICE (REU attached)
 ```
 
-CJM route (preferred when you may add more GEOS disks to the folder):
+Equivalent per-file flags: `c64devk flags GEOS64-20.d64 --c64 --pal
+--reu 512 --mouse1 --accurate-disk --rename` → `GEOS64-20_M6TPR5P1AD.d64`.
+
+CJM alternative (single-disk or boot-disk use):
 
 ```bash
 c64devk cjm --preset geos --default --out /usb/GEOS
@@ -102,16 +110,25 @@ c64devk cjm --preset geos --default --out /usb/GEOS
 producing `thec64-default.cjm`:
 
 ```
-X:64,pal,reu512
+X:64,pal,accuratedisk,reu512
 J:1M:
 ```
 
 Boot disk `GEOS64-20.d64` then boots a C64 PAL with the REU present
-and the USB mouse as the 1351 pointer. `--reu 16m` (RM/reu16384)
-gives the maximum RAM the machine can offer; stock GEOS 2.0 exploits
-what its REU driver detects, so `512` is the safe default while
-larger sizes suit CONFIGURE/MegaPatch-style setups. Note the REU
-contents do not persist across power cycles.
+and the USB mouse as the 1351 pointer (fw ≥ 1.6.1; older firmware:
+`--no-mouse` → J1 and GEOS's joystick input driver). **If the pointer
+ignores the mouse, it is GEOS's input driver, not the flags: press
+C= + I in GEOS and select the 1351 driver.** Diagnostic: a 1351 wires
+its right button to the joystick-up line, so *right button moves the
+pointer up (and clicks still work)* is the signature of the JOYSTICK
+driver being active — switch to 1351. Make the choice persistent via
+CONFIGURE; flags apply when a file loads, not live — reboot the boot
+disk after any rename. `--reu 16m`
+(RM/reu16384) gives the maximum RAM the machine can offer; stock
+GEOS 2.0 exploits up to 2 MB, so `512` is the safe default while
+larger sizes suit CONFIGURE/MegaPatch-style setups. Use unkeyed
+images (Cenbe/Lyon Labs set). Note the REU contents do not persist
+across power cycles.
 
 ## Tips
 

@@ -80,21 +80,36 @@ warns when a matching `.cjm` sits next to the media file).
 
 ## Worked example: GEOS 64 v2.0
 
-GEOS is mouse-driven and benefits from REU:
+GEOS is mouse-driven, benefits from REU, and needs accurate disk (its
+TURBOBOOT fastloader fails on TheC64's fast-disk mode):
 
 ```bash
-c64devk flags GEOS64-20.d64 --c64 --pal --reu 512 --mouse1 --rename
-# -> GEOS64-20_M6TPR5P1.d64
+c64devk flags GEOS64-20.d64 --c64 --pal --reu 512 --mouse1 --accurate-disk --rename
+# -> GEOS64-20_M6TPR5P1AD.d64
 ```
 
-The result in the File loader is still shown as **GEOS64-20**, boots a
-C64 PAL with a 512 kB REU detected at startup, and uses a connected
-USB mouse as the 1351 pointer in port #1. Bump `--reu 16m` (→ `RM`)
-for the maximum RAM TheC64 can offer; stock GEOS 2.0 exploits what its
-REU driver detects, so `R5` is the safe choice, while larger sizes
-prepare the machine for CONFIGURE/MegaPatch-style setups.
+**Rule: every disk of a GEOS set must carry the identical suffix.**
+On disk swap TheC64 reconfigures the machine from the inserted disk's
+flags — a mixed set (REU on some disks, not others) breaks the REU
+RAM disk mid-session. Easiest route — apply one uniform suffix to a
+whole folder of disks:
 
-Utility disks for the same GEOS session usually want at most:
+```bash
+c64devk geos <folder> --rename          # preview first; --reu 2048|16m for bigger
+c64devk geos <folder> --vice            # optional sanity boot in VICE (REU attached)
+```
+
+The result in the File loader is still shown as **GEOS64-20**, boots
+a C64 PAL with the REU detected at startup, and uses a connected USB
+mouse as the 1351 pointer in port #1 (fw ≥ 1.6.1; on older firmware
+use `--no-mouse` → `J1` and GEOS's joystick input driver). Stock
+GEOS 2.0 exploits up to 2 MB of REU, so `R5` is the safe choice;
+larger sizes suit CONFIGURE/MegaPatch-style setups. Use unkeyed
+images (Cenbe/Lyon Labs set); keyed originals can halt on a key
+mismatch.
+
+Utility disks get the same uniform treatment from `c64devk geos`, or
+individually:
 
 ```bash
 c64devk flags "Utilities.d64" --accurate-disk --read-only --rename

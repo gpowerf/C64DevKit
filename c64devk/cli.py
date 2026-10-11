@@ -147,6 +147,36 @@ def main() -> None:
     p_cjm.add_argument("--out", default=".", metavar="DIR",
                        help="Output directory (default: current directory)")
 
+    p_geos = sub.add_parser(
+        "geos",
+        help="Prepare a folder of GEOS disks for TheC64 (uniform flags "
+             "or folder CJM)")
+    p_geos.add_argument("dir", nargs="?", default=".",
+                        help="Folder containing the GEOS disk images "
+                             "(default: current directory)")
+    p_geos.add_argument("--reu", choices=["512", "2048", "16m", "none"],
+                        default="512",
+                        help="REU size for the whole set (default 512 kB; "
+                             "stock GEOS 2.0 exploits up to 2 MB)")
+    p_geos.add_argument("--video", choices=["pal", "ntsc"], default="pal",
+                        help="Video standard of the GEOS images (default pal)")
+    p_geos.add_argument("--no-mouse", action="store_true",
+                        help="Joystick route (fw < 1.6.1): J1 primary "
+                             "instead of 1351 mouse")
+    p_geos.add_argument("--cjm", action="store_true",
+                        help="Write thec64-default.cjm instead of renaming "
+                             "disks with flags (multi-disk swap: prefer flags)")
+    p_geos.add_argument("--rename", action="store_true",
+                        help="Apply the uniform flag suffixes in place")
+    p_geos.add_argument("--copy", metavar="DIR",
+                        help="Stage uniformly-flagged copies into DIR")
+    p_geos.add_argument("--vice", action="store_true",
+                        help="Sanity-boot the GEOS disk in VICE with REU "
+                             "attached before copying to USB")
+    p_geos.add_argument("--disk", metavar="FILE",
+                        help="Disk to boot with --vice (default: the first "
+                             "name matching 'geos', else the first disk)")
+
     sub.add_parser("setup", help="Install/configure all dependencies (ACME, VICE ROMs, PATH)")
 
     args = parser.parse_args()
@@ -178,6 +208,8 @@ def main() -> None:
             cmd_flags(args)
         case "cjm":
             cmd_cjm(args)
+        case "geos":
+            cmd_geos(args)
         case "setup":
             cmd_setup()
         case _:
@@ -884,7 +916,13 @@ def cmd_flags(args: argparse.Namespace) -> None:
                 had_errors = True
                 continue
         else:
-            new_flags = thec64.dedupe_flags(flags + _flags_from_options(args))
+            existing = flags
+            if args.reu:
+                # REU sizes are mutually exclusive — the new choice
+                # replaces whatever size was flagged before.
+                existing = [f for f in existing
+                            if f not in ("R5", "R2", "RM")]
+            new_flags = thec64.dedupe_flags(existing + _flags_from_options(args))
 
         new_name = thec64.build_flag_name(stem, new_flags, ext)
         errors = thec64.validate_flags(new_flags, ext)
@@ -1017,3 +1055,180 @@ def cmd_cjm(args: argparse.Namespace) -> None:
     print(f"CJM written: {out_path}")
     print()
     print(content, end="")
+
+
+GEOS_DISK_EXTS = (".d64", ".g64")
+
+
+def _find_geos_disks(directory: Path) -> list[Path]:
+    disks = [p for p in directory.iterdir()
+             if p.is_file() and p.suffix.lower() in GEOS_DISK_EXTS]
+    return sorted(disks, key=lambda p: p.name.lower())
+
+
+def _print_geos_next_steps(mouse: bool, reu: str) -> None:
+    print()
+    print("Next steps (TheC64 Maxi/Mini):")
+    print("  1. Copy the disks (and any .cjm) to a FAT32-formatted USB stick.")
+    print("  2. Firmware requirements: REU needs >= 1.5.2; the 1351 mouse "
+          "needs >= 1.6.1.")
+    if not mouse:
+        print("     No-mouse route: set GEOS's input driver to JOYSTICK "
+          "(C= + I opens the selector).")
+    if reu != "none":
+        print("  3. Keep the suffix identical on EVERY disk of the set — "
+              "swapping a differently-flagged disk reconfigures the "
+              "machine mid-session and breaks GEOS's REU RAM disk.")
+    print("  4. Use unkeyed GEOS images (Cenbe/Lyon Labs set); keyed "
+          "originals can halt on a key mismatch.")
+    print("  5. If boot still hangs, hold the third joystick button (C) "
+          "while launching to disable the built-in fastloader.")
+
+
+def cmd_geos(args: argparse.Namespace) -> None:
+    """Prepare a folder of GEOS disks for TheC64.
+
+    Applies one uniform flag suffix to every disk in the folder
+    (recommended: flags re-apply on mid-session disk swap) or, with
+    --cjm, writes a thec64-default.cjm instead.  Optionally sanity-boots
+    the disk in VICE with REU attached.
+    """
+    if args.rename and args.copy:
+        print("Error: choose --rename or --copy, not both", file=sys.stderr)
+        sys.exit(1)
+    if args.copy and args.cjm:
+        print("Error: --cjm writes one file; --copy does not apply",
+              file=sys.stderr)
+        sys.exit(1)
+
+    reu = None if args.reu == "none" else args.reu
+    directory = Path(args.dir)
+    if not directory.is_dir():
+        print(f"Error: '{directory}' is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    if args.cjm:
+        config = thec64.geos_cjm_config(video=args.video, reu=reu,
+                                        mouse=not args.no_mouse)
+        errors = thec64.validate_cjm(config)
+        if errors:
+            for err in errors:
+                print(f"Error: {err}", file=sys.stderr)
+            sys.exit(1)
+        out_dir = directory
+        out_path = out_dir / thec64.CJM_DEFAULT_FILENAME
+        content = config.generate()
+        out_path.write_text(content)
+        print(f"CJM written: {out_path}")
+        print()
+        print(content, end="")
+        _print_geos_next_steps(not args.no_mouse, args.reu)
+        return
+
+    disks = _find_geos_disks(directory)
+    if not disks:
+        print(f"Error: no .d64/.g64 images found in '{directory}'.",
+              file=sys.stderr)
+        print(file=sys.stderr)
+        print("Get GEOS 64 v2.0 (boot + utility disks) from "
+              "https://zimmers.net/anonftp/pub/cbm/geos/c64/", file=sys.stderr)
+        print("(geos20_d64.zip). Prefer unkeyed images; place the .d64 "
+              "files in the folder and re-run.", file=sys.stderr)
+        sys.exit(1)
+
+    codes = thec64.geos_flag_codes(video=args.video, reu=reu,
+                                   mouse=not args.no_mouse)
+    suffix = "".join(codes)
+    errors = thec64.validate_flags(codes, ".d64")
+    if errors:
+        for err in errors:
+            print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Uniform suffix for the set: _{suffix}  "
+          f"(video={args.video}, reu={reu or 'none'}, "
+          f"mouse={'yes' if not args.no_mouse else 'no (J1)'})")
+    print()
+
+    had_errors = False
+    for disk in disks:
+        stem, old_flags, ext = thec64.split_flags(disk.name)
+        new_name = thec64.build_flag_name(stem, codes, ext)
+        target = disk.parent / new_name
+        replaced = "".join(old_flags) if old_flags else "(none)"
+        print(f"{disk.name} -> {new_name}   [was: {replaced}]")
+        if new_name == disk.name:
+            print("  (already uniform)")
+            continue
+        if args.rename:
+            if target.exists():
+                print(f"  Error: '{target}' already exists", file=sys.stderr)
+                had_errors = True
+                continue
+            disk.rename(target)
+            print(f"  renamed -> {target}")
+        elif args.copy:
+            copy_dir = Path(args.copy)
+            copy_dir.mkdir(parents=True, exist_ok=True)
+            dest = copy_dir / new_name
+            if dest.exists():
+                print(f"  Error: '{dest}' already exists", file=sys.stderr)
+                had_errors = True
+                continue
+            shutil.copy2(disk, dest)
+            print(f"  copied -> {dest}")
+        else:
+            print("  (preview only — add --rename or --copy to apply)")
+
+    if had_errors:
+        sys.exit(1)
+
+    if args.vice:
+        _geos_vice_boot(directory, disks, args)
+    else:
+        _print_geos_next_steps(not args.no_mouse, args.reu)
+
+
+def _geos_vice_boot(directory: Path, disks: list[Path],
+                    args: argparse.Namespace) -> None:
+    """Sanity-boot a GEOS disk in VICE with the REU attached."""
+    from .vice_bridge import _setup_roms
+
+    vice = shutil.which("x64") or shutil.which("x64sc")
+    if not vice:
+        print("Error: VICE (x64) not found — install: sudo apt install vice",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if args.disk:
+        boot = Path(args.disk)
+    else:
+        boot = next((d for d in disks if "geos" in d.stem.lower()), disks[0])
+    if not boot.exists():
+        print(f"Error: boot disk '{boot}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    # VICE looks for its ROMs in the current directory — run from the
+    # framework's ROM dir like the rest of the toolchain (vice_bridge).
+    rom_dir = Path.home() / ".c64devk" / "roms"
+    if not (rom_dir / "kernal").exists():
+        _setup_roms(rom_dir)
+
+    cmd = [vice, "-autostart", str(boot.resolve())]
+    reu_image = None
+    if args.reu != "none":
+        kib = {"512": 512, "2048": 2048, "16m": 16384}[args.reu]
+        reu_image = directory / "geos.reu"
+        if not reu_image.exists():
+            reu_image.write_bytes(b"\x00" * (kib * 1024))
+            print(f"REU image created: {reu_image} ({kib} kB)")
+        cmd += ["-reu", "-reuimage", str(reu_image.resolve()),
+                "-reusize", str(kib), "-reuimagerw"]
+    cmd.append("-pal" if args.video == "pal" else "-ntsc")
+
+    print(f"Launching VICE: {' '.join(cmd)}")
+    proc = subprocess.Popen(cmd, cwd=str(rom_dir), start_new_session=True)
+    print(f"VICE running as PID {proc.pid}.")
+    print("GEOS should boot to the deskTop. Close VICE when satisfied; "
+          "the REU image persists for future sessions.")
+    _print_geos_next_steps(not args.no_mouse, args.reu)

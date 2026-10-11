@@ -66,6 +66,9 @@ MUTUALLY_EXCLUSIVE: list[tuple[str, str]] = [
     ("TN", "TP"),
     ("J1", "J2"),
     ("P1", "P2"),
+    ("R5", "R2"),
+    ("R5", "RM"),
+    ("R2", "RM"),
 ]
 
 #: Flags that only make sense on a VIC 20 program.
@@ -467,11 +470,12 @@ PRESETS: dict[str, CjmConfig] = {
         joysticks=[Joystick(port=2, primary=True,
                             buttons=list(TWO_STICK_BUTTONS))],
     ),
-    # GEOS is mouse-driven: 1351 mouse in port 1, REU enabled.
+    # GEOS is mouse-driven: 1351 mouse in port 1, REU + accurate disk
+    # (TURBOBOOT fails on TheC64's fast-disk mode).
     "geos": CjmConfig(
         computer="c64",
         video="pal",
-        options=["reu512"],
+        options=["accuratedisk", "reu512"],
         mouse=1,
     ),
 }
@@ -484,3 +488,51 @@ REU_FLAG_CHOICES = {"512": "R5", "2048": "R2", "16m": "RM"}
 
 #: VIC-20 bank CLI number -> filename flag.
 VIC_BANK_FLAGS = {0: "B0", 1: "B1", 2: "B2", 3: "B3", 5: "B5"}
+
+
+# ---------------------------------------------------------------------------
+# GEOS recipe
+# ---------------------------------------------------------------------------
+
+def geos_flag_codes(video: str = "pal", reu: str | None = "512",
+                    mouse: bool = True) -> list[str]:
+    """Filename flags for a GEOS disk on THEC64 (uniform across the set).
+
+    ``AD`` is required in practice: GEOS's TURBOBOOT is a bit-level
+    1541 fastloader that fails on TheC64's default fast-disk mode, so
+    every community GEOS recipe enables accurate disk.  On disk swap
+    THEC64 reconfigures the virtual machine from the inserted disk's
+    flags — therefore *every* disk of a GEOS set must carry the same
+    suffix, or REU-backed sessions break (RAM-drive errors).
+
+    ``mouse=True`` maps a USB mouse as the 1351 pointer in port 1
+    (firmware >= 1.6.1).  On older firmware use ``mouse=False`` (J1)
+    and GEOS's joystick input driver instead.
+    """
+    codes = ["M6", "TP" if video == "pal" else "TN"]
+    if reu:
+        codes.append(REU_FLAG_CHOICES[reu])
+    codes.append("P1" if mouse else "J1")
+    codes.append("AD")
+    return codes
+
+
+def geos_cjm_config(video: str = "pal", reu: str | None = "512",
+                    mouse: bool = True) -> CjmConfig:
+    """CJM configuration for GEOS on THEC64 (see :func:`geos_flag_codes`).
+
+    Intended for ``thec64-default.cjm`` in a GEOS folder.  Note the
+    multi-disk caveat: filename flags are proven to re-apply on
+    mid-session disk swap; a folder CJM may not.  For multi-disk GEOS
+    sets prefer :func:`geos_flag_codes`.
+    """
+    options = ["accuratedisk"]
+    if reu:
+        options.append(REU_CHOICES[reu])
+    config = CjmConfig(computer="c64", video=video, options=options)
+    if mouse:
+        config.mouse = 1
+    else:
+        config.joysticks = [Joystick(port=1, primary=True,
+                                     buttons=list(DEFAULT_JOYSTICK_BUTTONS))]
+    return config

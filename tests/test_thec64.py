@@ -78,6 +78,12 @@ def test_validate_flags_conflicting_models():
     assert any("M6 and MV" in e for e in errors)
 
 
+def test_validate_flags_conflicting_reu_sizes():
+    for pair in (["R5", "R2"], ["R5", "RM"], ["R2", "RM"]):
+        errors = thec64.validate_flags(pair, ".d64")
+        assert any("conflicting flags" in e for e in errors), pair
+
+
 def test_validate_flags_conflicting_video():
     assert thec64.validate_flags(["TN", "TP"], ".d64")
 
@@ -115,7 +121,7 @@ def test_validate_flags_geos_boot_set_valid():
 
 def test_generate_cjm_geos_preset():
     text = thec64.PRESETS["geos"].generate()
-    assert text == "X:64,pal,reu512\nJ:1M:\n"
+    assert text == "X:64,pal,accuratedisk,reu512\nJ:1M:\n"
 
 
 def test_generate_cjm_joystick_preset():
@@ -284,6 +290,21 @@ def test_cli_flags_copy_and_strip_roundtrip(tmp_path):
     assert not disk.exists()
 
 
+def test_cli_flags_reu_replaces_existing_size(tmp_path):
+    disk = tmp_path / "game_M6TPR5P1AD.d64"
+    disk.touch()
+    staged = tmp_path / "out"
+    out = _run("flags", "game_M6TPR5P1AD.d64", "--reu", "2048",
+               "--copy", "out", cwd=tmp_path)
+    assert out.returncode == 0
+    staged = list((tmp_path / "out").glob("*.d64"))
+    assert len(staged) == 1
+    # The new REU size replaces R5 instead of stacking on it.
+    _stem, flags, _ext = thec64.split_flags(staged[0].name)
+    assert "R2" in flags and "R5" not in flags
+    assert set(flags) == {"M6", "TP", "P1", "AD", "R2"}
+
+
 def test_cli_flags_explain(tmp_path):
     (tmp_path / "game_M6TPR5.d64").touch()
     out = _run("flags", "game_M6TPR5.d64", "--explain", cwd=tmp_path)
@@ -307,7 +328,7 @@ def test_cli_cjm_geos(tmp_path):
     assert out.returncode == 0
     written = tmp_path / "GEOS64-20.cjm"
     assert written.exists()
-    assert written.read_text() == "X:64,pal,reu512\nJ:1M:\n"
+    assert written.read_text() == "X:64,pal,accuratedisk,reu512\nJ:1M:\n"
 
 
 def test_cli_cjm_keeps_flags_in_name(tmp_path):
